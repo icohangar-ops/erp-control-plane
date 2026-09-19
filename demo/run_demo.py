@@ -126,7 +126,7 @@ def kpi_report(config: ControlPlaneConfig) -> int:
 
 def main() -> int:
     config = ControlPlaneConfig.from_env()
-    print("bmd-erp-control-plane · demo run (seeded dealer: Ridgeline Lumber & Supply)")
+    print("construction-supplies-erp-control-plane · demo run (seeded dealer: Ridgeline Lumber & Supply)")
     if extract(config) != 0:
         return 1
     if dbt_build(config) != 0:

@@ -1,5 +1,5 @@
 # =============================================================================
-# bmd-erp-control-plane — developer & deployment entry points
+# construction-supplies-erp-control-plane — developer & deployment entry points
 # =============================================================================
 .PHONY: help demo up up-bi down dbt-build dbt-test test lint typecheck ci clean
 

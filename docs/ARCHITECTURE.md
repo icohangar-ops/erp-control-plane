@@ -1,6 +1,6 @@
 # Architecture
 
-The ERP Control Plane standardizes data from acquired building-materials
+The ERP Control Plane standardizes data from acquired construction-supplies
 dealers — each running a different ERP — into one canonical model with one
 KPI catalog, while keeping per-ERP quirks isolated behind connectors.
 

@@ -1,7 +1,7 @@
 """bistrack — Epicor BisTrack extraction (SKELETON, dual mode).
 
 Extraction notes (ERP landscape research, art_NKUrngnG):
-- BisTrack is Epicor's lumber/building-materials dealer ERP. Two deployment
+- BisTrack is Epicor's lumber/construction-supplies dealer ERP. Two deployment
   shapes decide the extraction surface:
     * on-prem: MS SQL Server database — read via a read-only ODBC login
       (pyodbc, server-side cursors, prefer a log-shipped replica over the

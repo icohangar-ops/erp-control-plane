@@ -48,6 +48,6 @@ dbt_resource = DbtCliResource(project_dir=DBT_PROJECT)
 
 
 @dbt_assets(manifest=DBT_PROJECT.manifest_path, project=DBT_PROJECT)
-def bmd_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
+def construction_supplies_dbt_assets(context: AssetExecutionContext, dbt: DbtCliResource):
     """All dbt models + tests in one invocable set (staging -> canonical -> marts)."""
     yield from dbt.cli(["build"], context=context).stream()

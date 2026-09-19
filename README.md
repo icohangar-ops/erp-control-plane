@@ -1,4 +1,4 @@
-# ERP Control Plane for Building-Materials Distribution
+# ERP Control Plane for Construction Supplies Distribution
 
 A reusable, deployable data platform for a roll-up acquiring 2–3 building-
 materials dealers per month, each running a different ERP. Connectors isolate

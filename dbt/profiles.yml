@@ -1,6 +1,6 @@
 # dbt-duckdb profile. The analytics database is the per-customer DuckDB file
 # written by ingestion; paths resolve from the repo root (make targets run there).
-bmd_analytics:
+construction_supplies_analytics:
   target: demo
   outputs:
     demo:

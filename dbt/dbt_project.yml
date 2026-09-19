@@ -1,14 +1,14 @@
-name: bmd_erp_control_plane
+name: construction_supplies_erp_control_plane
 version: 0.1.0
 config-version: 2
-profile: bmd_analytics
+profile: construction_supplies_analytics
 
 model-paths: ["models"]
 seed-paths: ["seeds"]
 macro-paths: ["macros"]
 
 models:
-  bmd_erp_control_plane:
+  construction_supplies_erp_control_plane:
     staging:
       +materialized: view
       +schema: staging
@@ -20,5 +20,5 @@ models:
       +schema: marts
 
 seeds:
-  bmd_erp_control_plane:
+  construction_supplies_erp_control_plane:
     +schema: reference

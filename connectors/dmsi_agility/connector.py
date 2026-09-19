@@ -1,7 +1,7 @@
 """dmsi_agility — DMSi Agility REST extraction (SKELETON).
 
 Extraction notes (ERP landscape research, art_NKUrngnG):
-- DMSi Agility is a cloud-hosted dealer ERP for building-materials and
+- DMSi Agility is a cloud-hosted dealer ERP for construction-supplies and
   lumber yards; the documented integration surface is its REST API.
 - Core entities live behind the point-of-sale / order-management APIs:
   customers, items/products, quotes-orders, invoices, POs, inventory.
