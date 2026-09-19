@@ -23,6 +23,15 @@ from connectors.dmsi_agility.connector import DmsiAgilityConnector
 from connectors.eci_spruce.connector import EciSpruceConnector
 from connectors.epicor_eclipse.connector import EpicorEclipseConnector
 from connectors.epicor_p21.connector import EpicorP21Connector
+from connectors.legacy.db2_iseries import Db2ISeriesConnector
+from connectors.legacy.db2_luw import Db2LuwConnector
+from connectors.legacy.informix import InformixConnector
+from connectors.legacy.mysql import MariaDbConnector, MySqlConnector
+from connectors.legacy.openedge import OpenEdgeConnector
+from connectors.legacy.oracle import OracleConnector
+from connectors.legacy.postgresql import PostgresConnector
+from connectors.legacy.sqlserver import SqlServerConnector
+from connectors.legacy.sybase_ase import SybaseAseConnector
 from connectors.netsuite.connector import NetsuiteConnector
 from control_plane.config import ControlPlaneConfig
 from control_plane.models import SourceConfig
@@ -40,6 +49,16 @@ CONNECTOR_CLASSES: dict[str, type[BaseConnector]] = {
     EpicorEclipseConnector.erp_id: EpicorEclipseConnector,
     EciSpruceConnector.erp_id: EciSpruceConnector,
     DynamicsBcConnector.erp_id: DynamicsBcConnector,
+    InformixConnector.erp_id: InformixConnector,
+    Db2LuwConnector.erp_id: Db2LuwConnector,
+    Db2ISeriesConnector.erp_id: Db2ISeriesConnector,
+    OracleConnector.erp_id: OracleConnector,
+    SqlServerConnector.erp_id: SqlServerConnector,
+    PostgresConnector.erp_id: PostgresConnector,
+    MySqlConnector.erp_id: MySqlConnector,
+    MariaDbConnector.erp_id: MariaDbConnector,
+    SybaseAseConnector.erp_id: SybaseAseConnector,
+    OpenEdgeConnector.erp_id: OpenEdgeConnector,
 }
 
 SOURCES_YML = Path(__file__).with_name("sources.yml")

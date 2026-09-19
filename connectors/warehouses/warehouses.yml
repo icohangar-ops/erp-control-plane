@@ -1,0 +1,90 @@
+# Direct-connect warehouse configs (spec §5 last row) — connection configs
+# ONLY: no extraction runs from here. These are the consumer-side endpoints the
+# FastAPI connectivity layer and dbt analytics can attach to; the control
+# plane's extraction pipeline writes staging Parquet/DuckDB locally.
+#
+# Settings values support env-var interpolation like sources.yml
+# (${VAR} or ${VAR:-default}; secrets stay in the environment, never here).
+# `read_only: true` marks warehouses the connectivity layer must never write to.
+
+version: 1
+
+warehouses:
+  - warehouse_id: snowflake
+    engine: snowflake
+    description: >
+      Snowflake direct connect (account identifier; key-pair or password
+      auth). Connection config only — no extraction (spec §5 last row).
+    driver: snowflake-connector-python
+    read_only: true
+    required_settings: [account, warehouse, database, schema, user, password]
+    settings:
+      account: ${SNOWFLAKE_ACCOUNT:-}
+      warehouse: ${SNOWFLAKE_WAREHOUSE:-}
+      database: ${SNOWFLAKE_DATABASE:-}
+      schema: ${SNOWFLAKE_SCHEMA:-}
+      user: ${SNOWFLAKE_USER:-}
+      password: ${SNOWFLAKE_PASSWORD:-}
+      role: ${SNOWFLAKE_ROLE:-}
+      private_key_path: ${SNOWFLAKE_PRIVATE_KEY_PATH:-}
+
+  - warehouse_id: bigquery
+    engine: bigquery
+    description: >
+      Google BigQuery direct connect (service-account key or Application
+      Default Credentials). Connection config only — no extraction.
+    driver: google-cloud-bigquery
+    read_only: true
+    required_settings: [project, dataset]
+    settings:
+      project: ${BIGQUERY_PROJECT:-}
+      dataset: ${BIGQUERY_DATASET:-}
+      location: ${BIGQUERY_LOCATION:-US}
+      credentials_path: ${BIGQUERY_CREDENTIALS_PATH:-}
+
+  - warehouse_id: clickhouse
+    engine: clickhouse
+    description: >
+      ClickHouse direct connect (native TCP or HTTP interface). Connection
+      config only — no extraction.
+    driver: clickhouse-connect
+    read_only: true
+    required_settings: [host, port, user, password, database]
+    settings:
+      host: ${CLICKHOUSE_HOST:-}
+      port: ${CLICKHOUSE_PORT:-8443}
+      user: ${CLICKHOUSE_USER:-}
+      password: ${CLICKHOUSE_PASSWORD:-}
+      database: ${CLICKHOUSE_DATABASE:-}
+      secure: ${CLICKHOUSE_SECURE:-true}
+
+  - warehouse_id: trino
+    engine: trino
+    description: >
+      Trino direct connect (coordinator + catalog). Connection config only —
+      no extraction.
+    driver: trino-python-client
+    read_only: true
+    required_settings: [host, port, user, catalog]
+    settings:
+      host: ${TRINO_HOST:-}
+      port: ${TRINO_PORT:-8443}
+      user: ${TRINO_USER:-}
+      catalog: ${TRINO_CATALOG:-}
+      schema: ${TRINO_SCHEMA:-}
+      password: ${TRINO_PASSWORD:-}
+
+  - warehouse_id: databricks
+    engine: databricks
+    description: >
+      Databricks direct connect (SQL warehouse via the SQL Statement Execution
+      API). Connection config only — no extraction.
+    driver: databricks-sql-connector
+    read_only: true
+    required_settings: [server_hostname, http_path, access_token]
+    settings:
+      server_hostname: ${DATABRICKS_SERVER_HOSTNAME:-}
+      http_path: ${DATABRICKS_HTTP_PATH:-}
+      access_token: ${DATABRICKS_ACCESS_TOKEN:-}
+      catalog: ${DATABRICKS_CATALOG:-}
+      schema: ${DATABRICKS_SCHEMA:-}

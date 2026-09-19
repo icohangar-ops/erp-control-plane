@@ -16,6 +16,17 @@ FIRST_WAVE = {
     "epicor_eclipse_template",
     "eci_spruce_template",
     "d365_bc_template",
+    # Legacy database connector pack (spec §5 rows 1-9; MariaDB shares MySQL's row).
+    "informix_template",
+    "db2_luw_template",
+    "db2_iseries_template",
+    "oracle_template",
+    "sqlserver_template",
+    "postgresql_template",
+    "mysql_template",
+    "mariadb_template",
+    "sybase_ase_template",
+    "openedge_template",
 }
 
 

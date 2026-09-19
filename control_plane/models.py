@@ -69,3 +69,31 @@ class QuarantineRecord:
     detail: str
     quarantine_path: str
     quarantined_at: datetime
+
+
+@dataclass(frozen=True)
+class ReconciliationResult:
+    """Outcome of one anti-join delete-reconciliation run (spec §6).
+
+    ``tombstoned_keys`` are warehouse keys absent from the source key
+    inventory — records the source has hard-deleted since the last load.
+    """
+
+    source_id: str
+    entity: str
+    delete_semantics: str  # anti_join | cdc_native
+    source_key_count: int
+    warehouse_key_count: int
+    tombstoned_keys: tuple[str, ...]
+    ran_at: datetime
+
+
+@dataclass(frozen=True)
+class TombstoneRecord:
+    """One warehouse key tombstoned by reconciliation (hard delete at source)."""
+
+    source_id: str
+    entity: str
+    source_key: str
+    batch_id: str | None
+    tombstoned_at: datetime

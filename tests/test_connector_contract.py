@@ -36,7 +36,7 @@ def all_connectors(tmp_path_factory):
 
 def test_every_source_in_sources_yml_builds_a_connector(all_connectors):
     sources = load_source_configs()
-    assert len(all_connectors) == len(sources) == 8
+    assert len(all_connectors) == len(sources) == 18
     assert {c.source.source_id for c in all_connectors} == {s.source_id for s in sources}
 
 
@@ -45,12 +45,38 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     assert [c.source.source_id for c in enabled] == ["csvsftp_ridgeline"]
     assert enabled[0].maturity is ConnectorMaturity.IMPLEMENTED
     templates = [c for c in all_connectors if not c.source.enabled]
-    assert len(templates) == 7
+    assert len(templates) == 17
     by_id = {c.source.source_id: c for c in templates}
-    # NetSuite is coded but credential-gated (never exercised against a tenant);
-    # the remaining six are documented skeletons that never fabricate data.
-    assert by_id["netsuite_template"].maturity is ConnectorMaturity.IMPLEMENTED
-    skeletons = [c for c in templates if c.source.source_id != "netsuite_template"]
+    # Coded-but-unexercised connectors: never run against a live tenant/site,
+    # so they stay credential-gated templates (dlt resources exist, fixtures
+    # verify the ingestion shape in CI). The legacy SQL pack is in the same
+    # boat: implemented and fixture-tested, driver/credential discovery still
+    # pending per site.
+    implemented_templates = {
+        "netsuite_template",
+        "d365_bc_template",
+        "epicor_p21_template",
+        "informix_template",
+        "db2_luw_template",
+        "db2_iseries_template",
+        "oracle_template",
+        "sqlserver_template",
+        "postgresql_template",
+        "mysql_template",
+        "mariadb_template",
+        "sybase_ase_template",
+        "openedge_template",
+    }
+    for source_id in implemented_templates:
+        assert by_id[source_id].maturity is ConnectorMaturity.IMPLEMENTED
+    # The remaining templates are documented skeletons that never fabricate data.
+    skeletons = [c for c in templates if c.source.source_id not in implemented_templates]
+    assert {c.source.source_id for c in skeletons} == {
+        "bistrack_template",
+        "dmsi_agility_template",
+        "epicor_eclipse_template",
+        "eci_spruce_template",
+    }
     assert all(c.maturity is ConnectorMaturity.SKELETON for c in skeletons)
 
 
