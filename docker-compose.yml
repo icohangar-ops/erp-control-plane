@@ -60,5 +60,10 @@ services:
     volumes:
       - ./analytics/superset:/app/analytics
 
+# GenBI profile (WrenAI semantic layer + NL questioning). Defined in its own
+# file, included additively — the base deployment above is unchanged.
+include:
+  - docker/compose/genbi/wrenai.yml
+
 volumes:
   pgdata:

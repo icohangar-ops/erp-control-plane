@@ -15,6 +15,9 @@ venv/
 # Pipeline data (regenerable by `make demo`)
 /data/
 
+# GenBI: generated MDL drafts are review input, never versioned
+genbi/draft/
+
 # Dagster local state
 /.dagster/
 dagster_home/local/

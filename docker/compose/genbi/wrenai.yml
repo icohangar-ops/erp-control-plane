@@ -1,0 +1,190 @@
+# GenBI profile — WrenAI stack (GenBI spec §2). Fully additive: every service
+# is profile-gated, so the base deployment and its resource footprint are
+# unchanged. Enable with:
+#   docker compose --profile genbi up        (OpenAI-backed NL generation)
+#   docker compose --profile genbi --profile genbi-offline up   (+ Ollama)
+#
+# Image pins are <tag>@<digest>. Digests were resolved from GHCR / Docker Hub
+# on 2026-09-19 for the WrenAI 0.29.0 release line (versions taken from that
+# release's own docker/.env.example: UI 0.31.3, AI service 0.29.0, engine and
+# ibis 0.21.3, qdrant v1.11.0).
+x-genbi-profiles: &genbi-profiles ["genbi", "genbi-offline"]
+
+services:
+  wren-postgres:
+    # WrenAI UI metadata store (DB_TYPE=postgres; same engine the k8s
+    # deployment uses). Separate from the control-plane Postgres.
+    image: postgres:16-alpine@sha256:3c5c8892d184f738f4fe282d14ddaa613a38f00f4189d2d94725ebe6f2909ddb
+    profiles: *genbi-profiles
+    environment:
+      POSTGRES_USER: ${GENBI_WREN_PG_USER:-wren}
+      POSTGRES_PASSWORD: ${GENBI_WREN_PG_PASSWORD:-genbi_dev_only}
+      POSTGRES_DB: ${GENBI_WREN_PG_DB:-wren_ui}
+    volumes:
+      - genbi_wren_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${GENBI_WREN_PG_USER:-wren}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  qdrant:
+    # Vector store for the AI service RAG pipelines (schema/description indexing).
+    image: qdrant/qdrant:v1.11.0@sha256:cc802bd2841ec2026725e19619075982311ce4d7182dc8c03a0c8e6817bb9170
+    profiles: *genbi-profiles
+    volumes:
+      - genbi_qdrant:/qdrant/storage
+
+  wren-engine:
+    # The SQL engine WrenAI plans against. Reads the analytics DuckDB READ_ONLY;
+    # config.properties is written by the genbi-bootstrap one-shot service.
+    image: ghcr.io/canner/wren-engine:0.21.3@sha256:451923425c97e11d5ba9640e2234338801664ed007d6ae495cfcaec56746b3dc
+    profiles: *genbi-profiles
+    expose:
+      - "8080"
+      - "7432"
+    volumes:
+      - genbi_engine_etc:/usr/src/app/etc
+      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-./data/analytics}:/data/analytics:ro
+
+  ibis-server:
+    # Wren's connector layer (Python/ibis). Serves the MCP path and external
+    # connectors; DuckDB queries for the UI go through the engine endpoint.
+    image: ghcr.io/canner/wren-engine-ibis:0.21.3@sha256:2d7a586b30269fd4e434567b6df41f461cd5387739a1ec2e3102c9c947f5c0d5
+    profiles: *genbi-profiles
+    expose:
+      - "8000"
+    environment:
+      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
+    volumes:
+      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-./data/analytics}:/data/analytics:ro
+
+  wren-ai-service:
+    # NL-to-SQL service (LiteLLM-based). Model configuration lives in
+    # config.yaml (per the release README: AI model configuration belongs in
+    # config.yaml, not env); only the API credentials/base URL are env-provided.
+    image: ghcr.io/canner/wren-ai-service:0.29.0@sha256:a53c85e586a87eacbd72e28be772745e0c53473c92c7d63e394b64528ac612a7
+    profiles: *genbi-profiles
+    environment:
+      PYTHONUNBUFFERED: 1
+      CONFIG_PATH: ${GENBI_AI_CONFIG_PATH:-/app/config.yaml}
+      # Spec §5: the key comes from the injected secret; it is never committed.
+      # genbi-offline users set OPENAI_API_KEY=<any> + OPENAI_BASE_URL=<ollama>.
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+    volumes:
+      - ./docker/compose/genbi/config.yaml:/app/config.yaml:ro
+      - ./docker/compose/genbi/config-offline.yaml:/app/config-offline.yaml:ro
+    depends_on:
+      - qdrant
+
+  ollama:
+    # Local inference for the genbi-offline profile. Pull models on first run:
+    #   docker compose --profile genbi-offline exec ollama ollama pull qwen2.5:7b-instruct
+    #   docker compose --profile genbi-offline exec ollama ollama pull nomic-embed-text
+    image: ollama/ollama:0.12.6@sha256:a61a8fd395dbb931cc8cb1b5da7a2510746575c87113fdc45b647ee59ef7f808
+    profiles: ["genbi-offline"]
+    volumes:
+      - genbi_ollama:/root/.ollama
+
+  wren-ui:
+    # The WrenAI web app (modeling + NL questioning). Port 3001 keeps clear of
+    # the base stack (Dagster 3000, Superset 8088).
+    image: ghcr.io/canner/wren-ui:0.31.3@sha256:903816e6c2e2595a393cd9c0cd5b8cb2322e591a230a3e79bf8ada10cf17107f
+    profiles: *genbi-profiles
+    ports:
+      - "${GENBI_WREN_UI_PORT:-3001}:3000"
+    environment:
+      DB_TYPE: postgres
+      PG_URL: postgresql://${GENBI_WREN_PG_USER:-wren}:${GENBI_WREN_PG_PASSWORD:-genbi_dev_only}@wren-postgres:5432/${GENBI_WREN_PG_DB:-wren_ui}
+      WREN_ENGINE_ENDPOINT: http://wren-engine:8080
+      WREN_AI_ENDPOINT: http://wren-ai-service:5555
+      IBIS_SERVER_ENDPOINT: http://ibis-server:8000
+      WREN_ENGINE_PORT: "8080"
+      GENERATION_MODEL: ${GENBI_GENERATION_MODEL:-default}
+      WREN_PRODUCT_VERSION: 0.29.0
+      WREN_UI_VERSION: 0.31.3
+      WREN_ENGINE_VERSION: 0.21.3
+      WREN_AI_SERVICE_VERSION: 0.29.0
+      # Telemetry off for a self-hosted control plane (identifiers kept stable
+      # so unrelated telemetry events cannot correlate sessions).
+      USER_UUID: ${GENBI_USER_UUID:-00000000-0000-0000-0000-000000000000}
+      TELEMETRY_ENABLED: "false"
+      POSTHOG_API_KEY: ""
+      POSTHOG_HOST: ""
+      NEXT_PUBLIC_USER_UUID: ${GENBI_USER_UUID:-00000000-0000-0000-0000-000000000000}
+      NEXT_PUBLIC_POSTHOG_API_KEY: ""
+      NEXT_PUBLIC_POSTHOG_HOST: ""
+      NEXT_PUBLIC_TELEMETRY_ENABLED: "false"
+      EXPERIMENTAL_ENGINE_RUST_VERSION: "false"
+    volumes:
+      - genbi_ui_data:/app/data
+    depends_on:
+      wren-postgres:
+        condition: service_healthy
+      wren-engine:
+        condition: service_started
+      wren-ai-service:
+        condition: service_started
+
+  genbi-bootstrap:
+    # One-shot init (runs on every `up`, exits 0 when the project is already
+    # registered): writes the engine config.properties, builds the MCP
+    # config files from the curated MDL, then registers the MDL project with
+    # wren-ui over its GraphQL API (datasource + models + relations +
+    # descriptions + deploy/context build) and exits.
+    image: python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+    profiles: *genbi-profiles
+    restart: "no"
+    command: sh -c "pip install --quiet pyyaml==6.0.3 && python /bootstrap/init.py"
+    environment:
+      WREN_UI_GRAPHQL_URL: http://wren-ui:3000/api/graphql
+      GENBI_MDL_DIR: /mdl
+      GENBI_ENGINE_ETC_DIR: /engine-etc
+      GENBI_MCP_CONFIG_DIR: /mcp-config
+      GENBI_PROJECT_DISPLAY_NAME: ${GENBI_PROJECT_DISPLAY_NAME:-Construction Supplies ERP}
+      # Same container path the engine/ibis mounts use (genbi.connection).
+      GENBI_DUCKDB_MOUNT_PATH: /data/analytics/analytics.duckdb
+      GENBI_DUCKDB_CATALOG: analytics
+    volumes:
+      - ./docker/compose/genbi/bootstrap:/bootstrap:ro
+      - ./genbi/mdl:/mdl:ro
+      - genbi_engine_etc:/engine-etc
+      - genbi_mcp_config:/mcp-config
+    depends_on:
+      wren-ui:
+        condition: service_started
+      wren-engine:
+        condition: service_started
+
+  wren-mcp:
+    # OPTIONAL, SHIPPED DISABLED (profile genbi-mcp). Serves the Wren MCP
+    # protocol for AI agents. Vendored from the wren-engine submodule at the
+    # commit pinned by WrenAI 0.29.0 (see docker/compose/genbi/README.md).
+    #
+    # KNOWN LIMITATION (documented, not hidden): the ibis DuckDB connector in
+    # this release connects in-memory and initializes only S3/MinIO/GCS object
+    # stores, so file-backed .duckdb catalogs are not queryable through it yet.
+    # The service starts and serves MCP tools, but production MCP access to
+    # these marts is a Phase 2 item.
+    image: python:3.12-slim@sha256:2f17fc044b579bab302c2e8054d3a686e2cb9a83de48e70534b94cd8ebbe06a9
+    profiles: ["genbi-mcp"]
+    restart: unless-stopped
+    command: sh -c "pip install --quiet uv && cd /app && uv run --frozen app/wren.py"
+    environment:
+      WREN_URL: ibis-server:8000
+      CONNECTION_INFO_FILE: /mcp-config/connection_info.json
+      MDL_PATH: /mcp-config/mdl.json
+    volumes:
+      - ./docker/compose/genbi/mcp-server:/app:ro
+      - genbi_mcp_config:/mcp-config:ro
+    depends_on:
+      - ibis-server
+
+volumes:
+  genbi_wren_pg:
+  genbi_qdrant:
+  genbi_engine_etc:
+  genbi_ui_data:
+  genbi_ollama:
+  genbi_mcp_config:

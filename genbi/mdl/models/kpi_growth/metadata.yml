@@ -1,0 +1,21 @@
+name: kpi_growth
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_growth
+columns:
+- name: same_branch_revenue_pct
+  type: DOUBLE
+  properties:
+    description: Share of revenue sold by the customer's modal branch (0-1).
+- name: organic_revenue_pct
+  type: DOUBLE
+  properties:
+    description: Share of revenue from branches owned before the window start (0-1).
+- name: acquired_revenue_pct
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Share of revenue from branches acquired during the window (0-1).
+properties:
+  description: Same-branch share and organic vs acquired revenue mix.

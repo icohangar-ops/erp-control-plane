@@ -1,0 +1,45 @@
+name: dim_salesperson
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_salesperson
+columns:
+- name: salesperson_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Foreign key to dim_salesperson.
+  is_primary_key: true
+- name: source_salesperson_code
+  type: VARCHAR
+  properties:
+    description: Native salesperson code in the source ERP; kept for lineage back to the source.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: salesperson_name
+  type: VARCHAR
+  properties:
+    description: Salesperson display name.
+  is_primary_key: false
+- name: home_location_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_location for the salesperson's home branch.
+  is_primary_key: false
+- name: home_branch
+  type: VARCHAR
+  properties:
+    description: Home-branch display name (denormalized for convenience).
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: One row per salesperson, with home-branch attribution from the source payroll/CRM export.
+primary_key: salesperson_key

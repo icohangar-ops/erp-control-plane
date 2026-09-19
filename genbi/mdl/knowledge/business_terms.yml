@@ -1,0 +1,59 @@
+terms:
+- term: fill rate
+  definition: Share of demand shipped as ordered. Line-level fill rate caps filled at ordered quantity
+    over active lines; order-level fill rate counts orders whose every line is complete. Both are 0-1
+    proportions.
+  related_models:
+  - kpi_service
+  - fact_sales_order_line
+- term: OTIF
+  definition: 'On-time-in-full: orders that shipped complete AND on or before the promised date, over
+    all orders. Reported as otif_pct (0-1).'
+  related_models:
+  - kpi_service
+  - fact_sales_order_line
+- term: cash conversion cycle
+  definition: 'Days between paying suppliers and collecting from customers: DIO + DSO - DPO. Lower is
+    better.'
+  related_models:
+  - kpi_finance
+- term: GMROI
+  definition: 'Gross-margin return on inventory investment: annualized gross margin dollars divided by
+    average inventory value (mean of month-end snapshot totals).'
+  related_models:
+  - kpi_inventory
+  - kpi_headline
+- term: purchase price variance
+  definition: 'PPV: (actual received unit cost - standard cost) x received quantity, summed over receipts;
+    positive means paying above standard.'
+  related_models:
+  - kpi_purchasing
+  - fact_purchase_order_line
+- term: organic vs acquired revenue
+  definition: 'Revenue split by branch ownership: organic from branches owned before the window start,
+    acquired from branches bought during the window (e.g. the RL-JCB acquisition). Home branch is inferred
+    from the customer''s revenue mix.'
+  related_models:
+  - kpi_growth
+  - fact_invoice_line
+  - dim_location
+- term: analysis window
+  definition: The invoiced-activity period all KPI marts share (kpi_window); KPIs annualize to it via
+    the annualization factor 365 / window_days.
+  related_models:
+  - kpi_window
+  - kpi_headline
+- term: consolidated account
+  definition: Group chart-of-accounts name after mapping each source ERP's GL accounts through crosswalk
+    rules (exact, alias, or manual override).
+  related_models:
+  - fact_gl_transaction
+sample_questions:
+- What was last quarter's revenue by region?
+- Which items have the lowest fill rate this year?
+- How many days of inventory supply do we carry by category?
+- Which vendors have the highest purchase price variance?
+- What share of revenue came from acquired branches?
+- How did our cash conversion cycle trend over the window?
+- Which customers have exceeded their credit limit on open invoices?
+- What is our OTIF by branch?

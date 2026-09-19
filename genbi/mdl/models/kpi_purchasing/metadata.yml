@@ -1,0 +1,25 @@
+name: kpi_purchasing
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_purchasing
+columns:
+- name: vendor_fill_rate
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Received qty / ordered qty over PO lines in the window (0-1).
+- name: ppv_total
+  type: DECIMAL(38,2)
+  properties:
+    description: 'Purchase price variance total in USD: sum((actual - standard) x received qty).'
+- name: ppv_pct
+  type: DOUBLE
+  properties:
+    description: Purchase price variance as a share of standard-cost receipts (0-1).
+- name: po_line_count
+  type: BIGINT
+  properties:
+    description: Purchase-order lines in the window.
+properties:
+  description: Vendor fill rate and purchase price variance.

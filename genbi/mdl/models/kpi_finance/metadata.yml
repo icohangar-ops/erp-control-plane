@@ -1,0 +1,38 @@
+name: kpi_finance
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_finance
+columns:
+- name: gross_margin_pct
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Gross margin as a share of window revenue (0-1 scale).
+- name: revenue_window
+  type: DECIMAL(38,2)
+  properties:
+    description: Window revenue in USD (invoiced).
+- name: cogs_window
+  type: DECIMAL(38,2)
+  properties:
+    description: Window COGS in USD.
+- name: dso_days
+  type: DOUBLE
+  properties:
+    description: 'Days sales outstanding: AR balance / window revenue x 365.'
+- name: dpo_days
+  type: DOUBLE
+  properties:
+    description: 'Days payable outstanding: AP balance / window COGS x 365.'
+- name: ccc_days
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: 'Cash conversion cycle in days: DIO + DSO - DPO.'
+- name: close_cycle_days
+  type: DOUBLE
+  properties:
+    description: Average days from period end to close completion.
+properties:
+  description: Gross margin %, DSO, DPO, cash conversion cycle, close cycle.

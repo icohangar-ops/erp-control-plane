@@ -1,0 +1,33 @@
+name: kpi_productivity
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_productivity
+columns:
+- name: sales_per_fte_annualized
+  type: DOUBLE
+  properties:
+    description: Annualized window revenue / total group FTE.
+- name: avg_ticket
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Window revenue / distinct invoices.
+- name: orders_per_active_day
+  type: DOUBLE
+  properties:
+    description: Orders / distinct order days (operational tempo).
+- name: revenue_window
+  type: DECIMAL(38,9)
+  properties:
+    description: Window revenue in USD (invoiced).
+- name: invoice_count
+  type: BIGINT
+  properties:
+    description: Distinct invoices in the window.
+- name: total_fte
+  type: HUGEINT
+  properties:
+    description: Total branch FTE across the group.
+properties:
+  description: Sales per FTE, average ticket, order tempo.
