@@ -24,10 +24,10 @@ down: ## Stop the stack
 	docker compose --profile bi down
 
 dbt-build: ## Run dbt build (seeds + models + tests) against the demo DuckDB target
-	dbt build --project-dir dbt --profiles-dir dbt --target demo
+	mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo
 
 dbt-test: ## Run dbt tests only
-	dbt test --project-dir dbt --profiles-dir dbt --target demo
+	mkdir -p data/analytics && dbt test --project-dir dbt --profiles-dir dbt --target demo
 
 test: ## Run the Python test suite (connector contracts, csv_sftp e2e)
 	pytest

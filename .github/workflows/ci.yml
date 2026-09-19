@@ -39,7 +39,7 @@ jobs:
         run: python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
       - run: python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
       - name: dbt build (all models + tests, DuckDB)
-        run: dbt build --project-dir dbt --profiles-dir dbt --target demo
+        run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo
 
   compose:
     runs-on: ubuntu-latest
