@@ -85,10 +85,14 @@ def dbt_build(config: ControlPlaneConfig) -> int:
     started = time.monotonic()
     completed = subprocess.run(
         [
-            "dbt", "build",
-            "--project-dir", "dbt",
-            "--profiles-dir", "dbt",
-            "--target", "demo",
+            "dbt",
+            "build",
+            "--project-dir",
+            "dbt",
+            "--profiles-dir",
+            "dbt",
+            "--target",
+            "demo",
         ],
         cwd=REPO_ROOT,
         text=True,

@@ -8,7 +8,7 @@ sources:
       external locations. Every row carries connector provenance stamps
       (source_system, source_id, source_file, batch_id, loaded_at).
     meta:
-      external_location: "read_parquet('data/lake/parquet/csvsftp_ridgeline/{name}.parquet')"
+      external_location: "read_parquet('{{ env_var('LAKE_ROOT', 'data/lake') }}/parquet/csvsftp_ridgeline/{name}.parquet')"
     tables:
       - name: items
       - name: salespeople
