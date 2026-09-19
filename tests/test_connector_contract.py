@@ -36,7 +36,7 @@ def all_connectors(tmp_path_factory):
 
 def test_every_source_in_sources_yml_builds_a_connector(all_connectors):
     sources = load_source_configs()
-    assert len(all_connectors) == len(sources) == 18
+    assert len(all_connectors) == len(sources) == 20
     assert {c.source.source_id for c in all_connectors} == {s.source_id for s in sources}
 
 
@@ -45,7 +45,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     assert [c.source.source_id for c in enabled] == ["csvsftp_ridgeline"]
     assert enabled[0].maturity is ConnectorMaturity.IMPLEMENTED
     templates = [c for c in all_connectors if not c.source.enabled]
-    assert len(templates) == 17
+    assert len(templates) == 19
     by_id = {c.source.source_id: c for c in templates}
     # Coded-but-unexercised connectors: never run against a live tenant/site,
     # so they stay credential-gated templates (dlt resources exist, fixtures
@@ -55,6 +55,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     implemented_templates = {
         "netsuite_template",
         "d365_bc_template",
+        "cloud_erp_rest_template",
         "epicor_p21_template",
         "informix_template",
         "db2_luw_template",
@@ -66,6 +67,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         "mariadb_template",
         "sybase_ase_template",
         "openedge_template",
+        "sap_hana_template",
     }
     for source_id in implemented_templates:
         assert by_id[source_id].maturity is ConnectorMaturity.IMPLEMENTED
