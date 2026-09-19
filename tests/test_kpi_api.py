@@ -97,7 +97,14 @@ def test_root_serves_json_to_api_clients():
     response = client.get("/", headers={"Accept": "application/json"})
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/json")
-    assert response.json()["endpoints"] == ["/health", "/data/summary", "/kpis"]
+    assert response.json()["endpoints"] == [
+        "/health",
+        "/data/summary",
+        "/kpis",
+        "/api/v1/genbi/answers/promote",
+        "/api/v1/genbi/coverage-requests",
+        "/api/v1/genbi/audit",
+    ]
 
 
 def test_root_serves_html_landing_page_to_browsers():

@@ -7,6 +7,10 @@ source data the offline ``make demo`` pipeline ingests) as JSON:
 - ``GET /health``       -- liveness + data provenance
 - ``GET /data/summary`` -- per-domain row counts, date spans, headcount
 - ``GET /kpis``         -- the full 21-metric headline KPI set
+- ``POST /api/v1/genbi/answers/promote``  -- persist an NL answer as a governed
+  Superset dataset + chart (GenBI extension spec §4.2)
+- ``GET/POST /api/v1/genbi/coverage-requests`` -- the "not modeled yet" queue
+- ``GET /api/v1/genbi/audit``             -- question -> SQL -> latency -> outcome
 
 KPIs are computed with DuckDB using the same definitions as the dbt marts
 in ``dbt/models/marts/`` (kpi_window, kpi_inventory, kpi_service,
@@ -30,6 +34,8 @@ from typing import Any
 import duckdb
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
+
+from api.genbi.routes import router as genbi_router
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEALER_EXPORT_DIR = REPO_ROOT / "seed" / "dealer_export"
@@ -512,6 +518,8 @@ app = FastAPI(
     ),
 )
 
+app.include_router(genbi_router)
+
 
 @app.get("/")
 def root(request: Request) -> Any:
@@ -522,7 +530,14 @@ def root(request: Request) -> Any:
         "service": app.title,
         "version": app.version,
         "description": app.description,
-        "endpoints": ["/health", "/data/summary", "/kpis"],
+        "endpoints": [
+            "/health",
+            "/data/summary",
+            "/kpis",
+            "/api/v1/genbi/answers/promote",
+            "/api/v1/genbi/coverage-requests",
+            "/api/v1/genbi/audit",
+        ],
         "source_repository": "construction-supplies-erp-control-plane",
     }
 
@@ -572,6 +587,8 @@ LANDING_PAGE_TEMPLATE = Template("""<!doctype html>
     <li><a href="/health"><code>/health</code></a> — liveness and data provenance</li>
     <li><a href="/data/summary"><code>/data/summary</code></a> — row counts, date spans, headcount</li>
     <li><a href="/kpis"><code>/kpis</code></a> — the full headline KPI set as JSON</li>
+    <li><code>/api/v1/genbi/answers/promote</code> — save an NL answer as a governed Superset chart (<a href="/docs">docs</a>)</li>
+    <li><code>/api/v1/genbi/coverage-requests</code> — the "not modeled yet" queue · <code>/api/v1/genbi/audit</code> — query audit trail</li>
   </ul>
   <footer>$footer</footer>
 </main>

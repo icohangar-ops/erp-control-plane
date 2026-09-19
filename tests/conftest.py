@@ -6,6 +6,7 @@ import shutil
 import sys
 from pathlib import Path
 
+import duckdb
 import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -55,3 +56,17 @@ def drop_copy(tmp_path: Path) -> Path:
     copy = tmp_path / "dealer_export"
     shutil.copytree(SEED_EXPORT, copy)
     return copy
+
+
+@pytest.fixture()
+def analytics_file(tmp_path: Path) -> Path:
+    """A tiny analytics DuckDB the GenBI guardrailed executor can read."""
+    path = tmp_path / "analytics.duckdb"
+    con = duckdb.connect(str(path))
+    con.execute(
+        "create table dealer_revenue as select * from (values "
+        "('BLDG', 120.0), ('ELEC', 90.0), ('TOOL', 60.0)) "
+        "as t(branch_code, revenue)"
+    )
+    con.close()
+    return path
