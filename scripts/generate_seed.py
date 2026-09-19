@@ -22,7 +22,7 @@ from __future__ import annotations
 import hashlib
 import json
 import random
-from datetime import date, datetime, timedelta
+from datetime import date, timedelta
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -56,19 +56,118 @@ BRANCHES = [
 
 # item_no, description, category, subcategory, uom, unit_cost, list_price, base_weekly_demand
 ITEMS = [
-    ("RM-1001", "SPF Dimension Lumber 2x4x8 #2", "Lumber & Panels", "Dimension Lumber", "EA", 2.86, 3.98, 240),
-    ("RM-1002", "SPF Dimension Lumber 2x6x10 #2", "Lumber & Panels", "Dimension Lumber", "EA", 4.95, 6.85, 150),
-    ("RM-1003", "SPF Dimension Lumber 2x8x12 #1", "Lumber & Panels", "Dimension Lumber", "EA", 8.25, 11.40, 60),
+    (
+        "RM-1001",
+        "SPF Dimension Lumber 2x4x8 #2",
+        "Lumber & Panels",
+        "Dimension Lumber",
+        "EA",
+        2.86,
+        3.98,
+        240,
+    ),
+    (
+        "RM-1002",
+        "SPF Dimension Lumber 2x6x10 #2",
+        "Lumber & Panels",
+        "Dimension Lumber",
+        "EA",
+        4.95,
+        6.85,
+        150,
+    ),
+    (
+        "RM-1003",
+        "SPF Dimension Lumber 2x8x12 #1",
+        "Lumber & Panels",
+        "Dimension Lumber",
+        "EA",
+        8.25,
+        11.40,
+        60,
+    ),
     ("RM-1010", "OSB Sheathing 7/16 4x8", "Lumber & Panels", "Sheathing", "EA", 13.50, 18.75, 110),
-    ("RM-1011", "Plywood Sheathing 11/32 4x8", "Lumber & Panels", "Sheathing", "EA", 17.95, 24.90, 70),
-    ("RM-1020", "PT Lumber 2x4x8 Ground Contact", "Lumber & Panels", "Treated", "EA", 4.05, 5.60, 55),
+    (
+        "RM-1011",
+        "Plywood Sheathing 11/32 4x8",
+        "Lumber & Panels",
+        "Sheathing",
+        "EA",
+        17.95,
+        24.90,
+        70,
+    ),
+    (
+        "RM-1020",
+        "PT Lumber 2x4x8 Ground Contact",
+        "Lumber & Panels",
+        "Treated",
+        "EA",
+        4.05,
+        5.60,
+        55,
+    ),
     ("RM-1021", "PT Plywood 3/4 4x8", "Lumber & Panels", "Treated", "EA", 28.10, 38.90, 18),
-    ("RM-1022", "5/4x6 Radius Edge Deck Board 12'", "Lumber & Panels", "Decking", "EA", 6.45, 8.95, 85),
-    ("FS-2001", "Framing Nails 16d Bright 5 lb", "Framing & Fasteners", "Nails", "BX", 20.60, 28.50, 40),
-    ("FS-2002", "Deck Screws 3in coated 5 lb", "Framing & Fasteners", "Screws", "BX", 23.60, 32.75, 45),
-    ("FS-2010", "Simpson H2.5A Hurricane Tie", "Framing & Fasteners", "Connectors", "EA", 1.33, 1.85, 160),
-    ("FS-2011", "Simpson HD10 Holdown", "Framing & Fasteners", "Connectors", "EA", 34.90, 48.50, 12),
-    ("CM-3001", "QUIKRETE 80 lb 3500 psi", "Concrete & Masonry", "Bagged Concrete", "BG", 4.95, 6.85, 130),
+    (
+        "RM-1022",
+        "5/4x6 Radius Edge Deck Board 12'",
+        "Lumber & Panels",
+        "Decking",
+        "EA",
+        6.45,
+        8.95,
+        85,
+    ),
+    (
+        "FS-2001",
+        "Framing Nails 16d Bright 5 lb",
+        "Framing & Fasteners",
+        "Nails",
+        "BX",
+        20.60,
+        28.50,
+        40,
+    ),
+    (
+        "FS-2002",
+        "Deck Screws 3in coated 5 lb",
+        "Framing & Fasteners",
+        "Screws",
+        "BX",
+        23.60,
+        32.75,
+        45,
+    ),
+    (
+        "FS-2010",
+        "Simpson H2.5A Hurricane Tie",
+        "Framing & Fasteners",
+        "Connectors",
+        "EA",
+        1.33,
+        1.85,
+        160,
+    ),
+    (
+        "FS-2011",
+        "Simpson HD10 Holdown",
+        "Framing & Fasteners",
+        "Connectors",
+        "EA",
+        34.90,
+        48.50,
+        12,
+    ),
+    (
+        "CM-3001",
+        "QUIKRETE 80 lb 3500 psi",
+        "Concrete & Masonry",
+        "Bagged Concrete",
+        "BG",
+        4.95,
+        6.85,
+        130,
+    ),
     ("CM-3002", "QUIKRETE 60 lb", "Concrete & Masonry", "Bagged Concrete", "BG", 3.90, 5.40, 60),
     ("CM-3010", "Masonry Cement Type N", "Concrete & Masonry", "Masonry", "BG", 9.30, 12.90, 25),
     ("CM-3020", "Rebar #4 x 20 ft Grade 60", "Concrete & Masonry", "Rebar", "EA", 10.25, 14.25, 35),
@@ -80,14 +179,68 @@ ITEMS = [
     ("PT-5001", "Interior Paint Flat Gallon", "Paint & Interiors", "Paint", "EA", 32.20, 44.75, 35),
     ("PT-5002", "Bonding Primer Gallon", "Paint & Interiors", "Primer", "EA", 23.70, 32.90, 20),
     ("PT-5010", "Drywall 4x8x1/2", "Paint & Interiors", "Drywall", "EA", 9.05, 12.60, 75),
-    ("PT-5011", "All-Purpose Joint Compound 4.5 gal", "Paint & Interiors", "Drywall", "BG", 13.25, 18.40, 22),
+    (
+        "PT-5011",
+        "All-Purpose Joint Compound 4.5 gal",
+        "Paint & Interiors",
+        "Drywall",
+        "BG",
+        13.25,
+        18.40,
+        22,
+    ),
     ("DW-6001", "Interior 6-Panel Door Prehung", "Doors & Windows", "Doors", "EA", 64.10, 89.00, 9),
     ("DW-6002", "Entry Door Slab Fiberglass", "Doors & Windows", "Doors", "EA", 208.10, 289.00, 4),
-    ("DW-6010", "Double-Hung Window 3x5 Low-E", "Doors & Windows", "Windows", "EA", 224.60, 312.00, 5),
-    ("SX-7001", "Vinyl Siding Double 4 Square", "Siding & Exterior", "Siding", "SQ", 68.05, 94.50, 14),
-    ("SX-7010", "Aluminum Soffit 12 ft White", "Siding & Exterior", "Soffit", "EA", 10.65, 14.80, 40),
-    ("TL-9001", "Acrylic Latex Caulk 10.1 oz", "Tools & Accessories", "Sealants", "EA", 4.50, 6.25, 65),
-    ("TL-9002", "Construction Adhesive 28 oz", "Tools & Accessories", "Adhesives", "EA", 6.40, 8.90, 45),
+    (
+        "DW-6010",
+        "Double-Hung Window 3x5 Low-E",
+        "Doors & Windows",
+        "Windows",
+        "EA",
+        224.60,
+        312.00,
+        5,
+    ),
+    (
+        "SX-7001",
+        "Vinyl Siding Double 4 Square",
+        "Siding & Exterior",
+        "Siding",
+        "SQ",
+        68.05,
+        94.50,
+        14,
+    ),
+    (
+        "SX-7010",
+        "Aluminum Soffit 12 ft White",
+        "Siding & Exterior",
+        "Soffit",
+        "EA",
+        10.65,
+        14.80,
+        40,
+    ),
+    (
+        "TL-9001",
+        "Acrylic Latex Caulk 10.1 oz",
+        "Tools & Accessories",
+        "Sealants",
+        "EA",
+        4.50,
+        6.25,
+        65,
+    ),
+    (
+        "TL-9002",
+        "Construction Adhesive 28 oz",
+        "Tools & Accessories",
+        "Adhesives",
+        "EA",
+        6.40,
+        8.90,
+        45,
+    ),
 ]
 
 SALESPEOPLE = [
@@ -100,19 +253,149 @@ SALESPEOPLE = [
 ]
 
 CUSTOMERS = [
-    ("CT-1001", "Hensley Framing LLC", "CONTRACTOR", "NET30", 60000, "2147 Volcano Rd", "Bristol", "TN", "37620"),
-    ("CT-1002", "Crouch & Sons Drywall", "CONTRACTOR", "NET30", 35000, "88 Oakwood Ave", "Kingsport", "TN", "37660"),
-    ("CT-1003", "Triple Creek Roofing", "CONTRACTOR", "NET30", 45000, "1 Creekside Dr", "Bristol", "TN", "37620"),
-    ("CT-1004", "Mountain View Builders", "CONTRACTOR", "NET30", 80000, "4500 Highway 11W", "Bristol", "VA", "24201"),
-    ("CT-1005", "Bowman Electric Inc", "CONTRACTOR", "NET30", 20000, "92 Chestnut St", "Kingsport", "TN", "37663"),
-    ("CT-1006", "Appalachian Exteriors", "CONTRACTOR", "NET45", 30000, "610 Sunset Dr", "Johnson City", "TN", "37601"),
-    ("CT-1007", "Steele Renovations", "CONTRACTOR", "NET30", 15000, "77 Mill Pond Rd", "Blountville", "TN", "37617"),
-    ("CT-1008", "Fairview Homes Inc", "CONTRACTOR", "NET30", 55000, "3900 Fairview Rd", "Grey", "TN", "37618"),
-    ("BL-3001", "Colonial Development Group", "BUILDER", "NET45", 150000, "1200 Market St Ste 400", "Kingsport", "TN", "37662"),
-    ("BL-3002", "High Point Custom Homes", "BUILDER", "NET45", 90000, "55 High Point Ct", "Johnson City", "TN", "37615"),
-    ("RT-2001", "Walk-In Retail", "RETAIL", "CASH", 0, "1100 Volunteer Pkwy", "Bristol", "TN", "37620"),
-    ("RT-2002", "Doyle Handyman Services", "RETAIL", "CASH", 0, "19 Locust Ln", "Bristol", "TN", "37620"),
-    ("RT-2003", "Vance Property Management", "RETAIL", "NET15", 8000, "580 Willow St", "Kingsport", "TN", "37664"),
+    (
+        "CT-1001",
+        "Hensley Framing LLC",
+        "CONTRACTOR",
+        "NET30",
+        60000,
+        "2147 Volcano Rd",
+        "Bristol",
+        "TN",
+        "37620",
+    ),
+    (
+        "CT-1002",
+        "Crouch & Sons Drywall",
+        "CONTRACTOR",
+        "NET30",
+        35000,
+        "88 Oakwood Ave",
+        "Kingsport",
+        "TN",
+        "37660",
+    ),
+    (
+        "CT-1003",
+        "Triple Creek Roofing",
+        "CONTRACTOR",
+        "NET30",
+        45000,
+        "1 Creekside Dr",
+        "Bristol",
+        "TN",
+        "37620",
+    ),
+    (
+        "CT-1004",
+        "Mountain View Builders",
+        "CONTRACTOR",
+        "NET30",
+        80000,
+        "4500 Highway 11W",
+        "Bristol",
+        "VA",
+        "24201",
+    ),
+    (
+        "CT-1005",
+        "Bowman Electric Inc",
+        "CONTRACTOR",
+        "NET30",
+        20000,
+        "92 Chestnut St",
+        "Kingsport",
+        "TN",
+        "37663",
+    ),
+    (
+        "CT-1006",
+        "Appalachian Exteriors",
+        "CONTRACTOR",
+        "NET45",
+        30000,
+        "610 Sunset Dr",
+        "Johnson City",
+        "TN",
+        "37601",
+    ),
+    (
+        "CT-1007",
+        "Steele Renovations",
+        "CONTRACTOR",
+        "NET30",
+        15000,
+        "77 Mill Pond Rd",
+        "Blountville",
+        "TN",
+        "37617",
+    ),
+    (
+        "CT-1008",
+        "Fairview Homes Inc",
+        "CONTRACTOR",
+        "NET30",
+        55000,
+        "3900 Fairview Rd",
+        "Grey",
+        "TN",
+        "37618",
+    ),
+    (
+        "BL-3001",
+        "Colonial Development Group",
+        "BUILDER",
+        "NET45",
+        150000,
+        "1200 Market St Ste 400",
+        "Kingsport",
+        "TN",
+        "37662",
+    ),
+    (
+        "BL-3002",
+        "High Point Custom Homes",
+        "BUILDER",
+        "NET45",
+        90000,
+        "55 High Point Ct",
+        "Johnson City",
+        "TN",
+        "37615",
+    ),
+    (
+        "RT-2001",
+        "Walk-In Retail",
+        "RETAIL",
+        "CASH",
+        0,
+        "1100 Volunteer Pkwy",
+        "Bristol",
+        "TN",
+        "37620",
+    ),
+    (
+        "RT-2002",
+        "Doyle Handyman Services",
+        "RETAIL",
+        "CASH",
+        0,
+        "19 Locust Ln",
+        "Bristol",
+        "TN",
+        "37620",
+    ),
+    (
+        "RT-2003",
+        "Vance Property Management",
+        "RETAIL",
+        "NET15",
+        8000,
+        "580 Willow St",
+        "Kingsport",
+        "TN",
+        "37664",
+    ),
 ]
 
 VENDORS = [
@@ -188,9 +471,9 @@ BRANCH_WEIGHT = {"RL-BRI": 1.0, "RL-KPT": 0.75, "RL-JCB": 0.55}
 
 def _branch_for_item(item_no: str) -> str:
     """Assign a stable 'home branch' per item but allow spillover to others."""
-    return rng.choices(
-        list(BRANCH_WEIGHT), weights=[BRANCH_WEIGHT[b] for b in BRANCH_WEIGHT], k=1
-    )[0]
+    return rng.choices(list(BRANCH_WEIGHT), weights=[BRANCH_WEIGHT[b] for b in BRANCH_WEIGHT], k=1)[
+        0
+    ]
 
 
 def generate_items() -> list[list]:
@@ -235,7 +518,9 @@ def generate_sales_order_lines() -> list[list]:
             order_seq += 1
             order_no = f"SO-{order_seq}"
             # Saturday orders skew retail; weekdays skew contractors
-            customer = rng.choice(retail if sat and rng.random() < 0.6 else contractors if not sat else retail)
+            customer = rng.choice(
+                retail if sat and rng.random() < 0.6 else contractors if not sat else retail
+            )
             branch = rng.choices(
                 list(BRANCH_WEIGHT), weights=[BRANCH_WEIGHT[b] for b in BRANCH_WEIGHT], k=1
             )[0]
@@ -281,11 +566,26 @@ def generate_sales_order_lines() -> list[list]:
                 else:
                     disc = 1.0
                 unit_price = round(price * disc, 2)
-                rows.append([
-                    order_no, line_no, day.isoformat(), customer[0], branch, salesperson,
-                    item_no, uom, qty, filled, cancelled, money(unit_price), money(cost),
-                    promised.isoformat(), shipped.isoformat() if shipped else "", status,
-                ])
+                rows.append(
+                    [
+                        order_no,
+                        line_no,
+                        day.isoformat(),
+                        customer[0],
+                        branch,
+                        salesperson,
+                        item_no,
+                        uom,
+                        qty,
+                        filled,
+                        cancelled,
+                        money(unit_price),
+                        money(cost),
+                        promised.isoformat(),
+                        shipped.isoformat() if shipped else "",
+                        status,
+                    ]
+                )
         day += timedelta(days=1)
     return rows
 
@@ -306,15 +606,47 @@ def generate_invoice_lines(order_lines: list[list]) -> list[list]:
         customer_no = lines[0][3]
         customer = next(c for c in CUSTOMERS if c[0] == customer_no)
         for line_no, line in enumerate(lines, start=1):
-            _order_no, _ln, _od, _cust, _br, _sp, item_no, uom, _q, filled, _c, unit_price, unit_cost, _pd, _sd, _st = line
+            (
+                _order_no,
+                _ln,
+                _od,
+                _cust,
+                _br,
+                _sp,
+                item_no,
+                uom,
+                _q,
+                filled,
+                _c,
+                unit_price,
+                unit_cost,
+                _pd,
+                _sd,
+                _st,
+            ) = line
             item = next(i for i in ITEMS if i[0] == item_no)
             unit_price, unit_cost = float(unit_price), float(unit_cost)
-            freight = round(filled * 0.02 * item[6], 2) if item[6] >= 12 and filled > 5 else 0.0  # bulk lumber
+            freight = (
+                round(filled * 0.02 * item[6], 2) if item[6] >= 12 and filled > 5 else 0.0
+            )  # bulk lumber
             tax = round(filled * unit_price * 0.0975, 2) if customer[2] == "RETAIL" else 0.0
-            rows.append([
-                invoice_no, line_no, invoice_date.isoformat(), order_no, customer_no, line[4],
-                item_no, uom, filled, money(unit_price), money(unit_cost), money(freight), money(tax),
-            ])
+            rows.append(
+                [
+                    invoice_no,
+                    line_no,
+                    invoice_date.isoformat(),
+                    order_no,
+                    customer_no,
+                    line[4],
+                    item_no,
+                    uom,
+                    filled,
+                    money(unit_price),
+                    money(unit_cost),
+                    money(freight),
+                    money(tax),
+                ]
+            )
     return rows
 
 
@@ -336,7 +668,14 @@ def generate_purchase_order_lines() -> list[list]:
                 for line_no, item in enumerate(chosen, start=1):
                     item_no, _d, _c, _s, uom, cost, _p, demand = item
                     ordered = max(
-                        5, round(demand / 10 * BRANCH_WEIGHT[branch] * rng.uniform(0.8, 1.6) * LINE_QTY_SCALE)
+                        5,
+                        round(
+                            demand
+                            / 10
+                            * BRANCH_WEIGHT[branch]
+                            * rng.uniform(0.8, 1.6)
+                            * LINE_QTY_SCALE
+                        ),
                     )
                     received, received_date = 0, None
                     if day <= date(2026, 8, 14):
@@ -348,11 +687,22 @@ def generate_purchase_order_lines() -> list[list]:
                         received_date = day + timedelta(days=rng.randint(2, 9))
                     ppv_factor = rng.uniform(0.95, 1.08)
                     actual = round(cost * ppv_factor, 2)
-                    rows.append([
-                        po_no, line_no, day.isoformat(), vendor_no, branch, item_no, uom,
-                        ordered, received, money(actual), money(cost),  # actual, standard
-                        received_date.isoformat() if received_date else "",
-                    ])
+                    rows.append(
+                        [
+                            po_no,
+                            line_no,
+                            day.isoformat(),
+                            vendor_no,
+                            branch,
+                            item_no,
+                            uom,
+                            ordered,
+                            received,
+                            money(actual),
+                            money(cost),  # actual, standard
+                            received_date.isoformat() if received_date else "",
+                        ]
+                    )
         day += timedelta(days=7)
     return rows
 
@@ -360,7 +710,13 @@ def generate_purchase_order_lines() -> list[list]:
 def generate_inventory_snapshots() -> list[list]:
     """Month-end periodic snapshots Apr-Aug 2026 (Apr seeds May averages)."""
     rows: list[list] = []
-    snap_dates = [date(2026, 4, 30), date(2026, 5, 31), date(2026, 6, 30), date(2026, 7, 31), date(2026, 8, 31)]
+    snap_dates = [
+        date(2026, 4, 30),
+        date(2026, 5, 31),
+        date(2026, 6, 30),
+        date(2026, 7, 31),
+        date(2026, 8, 31),
+    ]
     for snap in snap_dates:
         for branch, weight in BRANCH_WEIGHT.items():
             month_f = SEASON_FACTOR[snap.month] if snap.month <= 8 else 1.0
@@ -371,10 +727,19 @@ def generate_inventory_snapshots() -> list[list]:
                 allocated = round(on_hand * rng.uniform(0.0, 0.25)) if rng.random() < 0.5 else 0
                 on_order = round(base_stock * rng.uniform(0.1, 0.6)) if rng.random() < 0.4 else 0
                 backorder = round(base_stock * rng.uniform(0.02, 0.2)) if rng.random() < 0.18 else 0
-                rows.append([
-                    snap.isoformat(), branch, item_no, on_hand, allocated, on_order, backorder,
-                    money(cost), money(on_hand * cost),
-                ])
+                rows.append(
+                    [
+                        snap.isoformat(),
+                        branch,
+                        item_no,
+                        on_hand,
+                        allocated,
+                        on_order,
+                        backorder,
+                        money(cost),
+                        money(on_hand * cost),
+                    ]
+                )
     return rows
 
 
@@ -448,59 +813,134 @@ def generate_gl_entries(
         opening_ap = round(annual_revenue * 8 / 365 * share, 2)
         assets = 420000 * weight + opening_ar + opening_inventory
         opening_equity = round(assets - opening_ap, 2)
-        journal([
-            [date(2026, 1, 1), branch, "1010", "Opening balance", round(420000 * weight, 2), 0],
-            [date(2026, 1, 1), branch, "1100", "Opening balance", opening_ar, 0],
-            [date(2026, 1, 1), branch, "1200", "Opening balance", opening_inventory, 0],
-            [date(2026, 1, 1), branch, "2000", "Opening balance", 0, opening_ap],
-            [date(2026, 1, 1), branch, "3900", "Opening balance", 0, opening_equity],
-        ])
+        journal(
+            [
+                [date(2026, 1, 1), branch, "1010", "Opening balance", round(420000 * weight, 2), 0],
+                [date(2026, 1, 1), branch, "1100", "Opening balance", opening_ar, 0],
+                [date(2026, 1, 1), branch, "1200", "Opening balance", opening_inventory, 0],
+                [date(2026, 1, 1), branch, "2000", "Opening balance", 0, opening_ap],
+                [date(2026, 1, 1), branch, "3900", "Opening balance", 0, opening_equity],
+            ]
+        )
 
     months = [(1, 31), (2, 28), (3, 31), (4, 30), (5, 31), (6, 30), (7, 31), (8, 31)]
     for month, _last in months:
         month_end = date(2026, month, _last)
         for branch, weight in BRANCH_WEIGHT.items():
-            branch_invoices = [r for r in invoice_lines if r[5] == branch and r[2].startswith(f"2026-{month:02d}")]
-            sales = sum(float(r[9]) * float(r[8]) + float(r[11]) + float(r[12]) for r in branch_invoices)
+            branch_invoices = [
+                r for r in invoice_lines if r[5] == branch and r[2].startswith(f"2026-{month:02d}")
+            ]
+            sales = sum(
+                float(r[9]) * float(r[8]) + float(r[11]) + float(r[12]) for r in branch_invoices
+            )
             cogs = sum(float(r[10]) * float(r[8]) for r in branch_invoices)
-            branch_pos = [r for r in po_lines if r[4] == branch and r[2].startswith(f"2026-{month:02d}")]
+            branch_pos = [
+                r for r in po_lines if r[4] == branch and r[2].startswith(f"2026-{month:02d}")
+            ]
             purchases = sum(float(r[9]) * float(r[7]) for r in branch_pos if r[8] > 0)
             collections = round(sales * 0.97, 2)
             payments = round(purchases * 0.90, 2)
 
-            def scale(v: float) -> float:
+            def scale(v: float, _w: float = weight) -> float:
                 """Allocate a GROUP-LEVEL constant to a branch by weight."""
-                return round(v * weight, 2)
+                return round(v * _w, 2)
 
             # Book-derived amounts are branch-actual: no weight scaling here.
-            journal([
-                [month_end, branch, "1100", f"Sales accrual {month_end:%B}", round(sales, 2), 0],
-                [month_end, branch, "4000", f"Sales accrual {month_end:%B}", 0, round(sales * 0.985, 2)],
-                [month_end, branch, "4010", f"Freight recovered {month_end:%B}", 0, round(sales * 0.015, 2)],
-                [month_end, branch, "5000", f"COGS {month_end:%B}", round(cogs, 2), 0],
-                [month_end, branch, "1200", f"COGS relief {month_end:%B}", 0, round(cogs, 2)],
-                [month_end, branch, "1010", f"Customer collections {month_end:%B}", collections, 0],
-                [month_end, branch, "1100", f"Customer collections {month_end:%B}", 0, collections],
-                [month_end, branch, "1200", f"Inventory receipts {month_end:%B}", round(purchases, 2), 0],
-                [month_end, branch, "2000", f"Inventory receipts {month_end:%B}", 0, round(purchases, 2)],
-                [month_end, branch, "2000", f"Vendor payments {month_end:%B}", payments, 0],
-                [month_end, branch, "1010", f"Vendor payments {month_end:%B}", 0, payments],
-                [month_end, branch, "6100", f"Payroll {month_end:%B}", scale(130000), 0],
-                [month_end, branch, "1010", f"Payroll {month_end:%B}", 0, scale(130000)],
-                [month_end, branch, "6200", f"Rent {month_end:%B}", scale(26000), 0],
-                [month_end, branch, "1010", f"Rent {month_end:%B}", 0, scale(26000)],
-                [month_end, branch, "6300", f"Utilities {month_end:%B}", scale(7200), 0],
-                [month_end, branch, "1010", f"Utilities {month_end:%B}", 0, scale(7200)],
-                [month_end, branch, "6500", f"Supplies {month_end:%B}", scale(4200), 0],
-                [month_end, branch, "1010", f"Supplies {month_end:%B}", 0, scale(4200)],
-                [month_end, branch, "6900", f"Distributions {month_end:%B}", scale(30000), 0],
-                [month_end, branch, "1010", f"Distributions {month_end:%B}", 0, scale(30000)],
-            ])
+            journal(
+                [
+                    [
+                        month_end,
+                        branch,
+                        "1100",
+                        f"Sales accrual {month_end:%B}",
+                        round(sales, 2),
+                        0,
+                    ],
+                    [
+                        month_end,
+                        branch,
+                        "4000",
+                        f"Sales accrual {month_end:%B}",
+                        0,
+                        round(sales * 0.985, 2),
+                    ],
+                    [
+                        month_end,
+                        branch,
+                        "4010",
+                        f"Freight recovered {month_end:%B}",
+                        0,
+                        round(sales * 0.015, 2),
+                    ],
+                    [month_end, branch, "5000", f"COGS {month_end:%B}", round(cogs, 2), 0],
+                    [month_end, branch, "1200", f"COGS relief {month_end:%B}", 0, round(cogs, 2)],
+                    [
+                        month_end,
+                        branch,
+                        "1010",
+                        f"Customer collections {month_end:%B}",
+                        collections,
+                        0,
+                    ],
+                    [
+                        month_end,
+                        branch,
+                        "1100",
+                        f"Customer collections {month_end:%B}",
+                        0,
+                        collections,
+                    ],
+                    [
+                        month_end,
+                        branch,
+                        "1200",
+                        f"Inventory receipts {month_end:%B}",
+                        round(purchases, 2),
+                        0,
+                    ],
+                    [
+                        month_end,
+                        branch,
+                        "2000",
+                        f"Inventory receipts {month_end:%B}",
+                        0,
+                        round(purchases, 2),
+                    ],
+                    [month_end, branch, "2000", f"Vendor payments {month_end:%B}", payments, 0],
+                    [month_end, branch, "1010", f"Vendor payments {month_end:%B}", 0, payments],
+                    [month_end, branch, "6100", f"Payroll {month_end:%B}", scale(130000), 0],
+                    [month_end, branch, "1010", f"Payroll {month_end:%B}", 0, scale(130000)],
+                    [month_end, branch, "6200", f"Rent {month_end:%B}", scale(26000), 0],
+                    [month_end, branch, "1010", f"Rent {month_end:%B}", 0, scale(26000)],
+                    [month_end, branch, "6300", f"Utilities {month_end:%B}", scale(7200), 0],
+                    [month_end, branch, "1010", f"Utilities {month_end:%B}", 0, scale(7200)],
+                    [month_end, branch, "6500", f"Supplies {month_end:%B}", scale(4200), 0],
+                    [month_end, branch, "1010", f"Supplies {month_end:%B}", 0, scale(4200)],
+                    [month_end, branch, "6900", f"Distributions {month_end:%B}", scale(30000), 0],
+                    [month_end, branch, "1010", f"Distributions {month_end:%B}", 0, scale(30000)],
+                ]
+            )
             if month in (3, 6):
-                journal([
-                    [month_end, branch, "6400", f"Insurance premium {month_end:%B}", scale(14500), 0],
-                    [month_end, branch, "1010", f"Insurance premium {month_end:%B}", 0, scale(14500)],
-                ])
+                journal(
+                    [
+                        [
+                            month_end,
+                            branch,
+                            "6400",
+                            f"Insurance premium {month_end:%B}",
+                            scale(14500),
+                            0,
+                        ],
+                        [
+                            month_end,
+                            branch,
+                            "1010",
+                            f"Insurance premium {month_end:%B}",
+                            0,
+                            scale(14500),
+                        ],
+                    ]
+                )
     return rows
 
 
@@ -518,24 +958,47 @@ def write_reference_seeds() -> None:
     )
     coa_rows = []
     group_map = {
-        "1010": ("GRP-1000", "DIRECT"), "1100": ("GRP-1100", "DIRECT"),
-        "1200": ("GRP-1200", "DIRECT"), "2000": ("GRP-2000", "DIRECT"),
-        "3900": ("GRP-3900", "DIRECT"), "4000": ("GRP-4000", "DIRECT"),
-        "4010": ("GRP-4010", "DIRECT"), "5000": ("GRP-5000", "DIRECT"),
-        "6100": ("GRP-5100", "DIRECT"), "6200": ("GRP-5200", "DIRECT"),
-        "6300": ("GRP-5300", "DIRECT"), "6400": ("GRP-5400", "DIRECT"),
+        "1010": ("GRP-1000", "DIRECT"),
+        "1100": ("GRP-1100", "DIRECT"),
+        "1200": ("GRP-1200", "DIRECT"),
+        "2000": ("GRP-2000", "DIRECT"),
+        "3900": ("GRP-3900", "DIRECT"),
+        "4000": ("GRP-4000", "DIRECT"),
+        "4010": ("GRP-4010", "DIRECT"),
+        "5000": ("GRP-5000", "DIRECT"),
+        "6100": ("GRP-5100", "DIRECT"),
+        "6200": ("GRP-5200", "DIRECT"),
+        "6300": ("GRP-5300", "DIRECT"),
+        "6400": ("GRP-5400", "DIRECT"),
         "6500": ("GRP-5500", "DIRECT"),
         "6900": ("GRP-5900", "ADDBACK"),  # owner comp: normalizing add-back on the bridge
     }
     for acct, name in GL_ACCOUNTS:
         target, rule = group_map[acct]
-        coa_rows.append([
-            "ridgeline_lumber", acct, name, target, "2026-01-01", "9999-12-31", rule, "TRUE",
-        ])
+        coa_rows.append(
+            [
+                "ridgeline_lumber",
+                acct,
+                name,
+                target,
+                "2026-01-01",
+                "9999-12-31",
+                rule,
+                "TRUE",
+            ]
+        )
     write_csv(
         REFERENCE_DIR / "coa_mapping.csv",
-        ["source_company_id", "source_gl_account", "source_account_name", "target_consolidated_account",
-         "effective_start_date", "effective_end_date", "mapping_rule_type", "active_flag"],
+        [
+            "source_company_id",
+            "source_gl_account",
+            "source_account_name",
+            "target_consolidated_account",
+            "effective_start_date",
+            "effective_end_date",
+            "mapping_rule_type",
+            "active_flag",
+        ],
         coa_rows,
     )
     close_rows = []
@@ -568,14 +1031,18 @@ def write_manifest(files: dict[str, int]) -> None:
     }
     for name, row_count in sorted(files.items()):
         digest = hashlib.sha256((DEALER_DIR / name).read_bytes()).hexdigest()
-        manifest["files"].append({
-            "name": name,
-            "sha256": digest,
-            "rows": row_count,
-            "encoding": "utf-8",
-            "delimiter": ",",
-        })
-    (DEALER_DIR / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+        manifest["files"].append(
+            {
+                "name": name,
+                "sha256": digest,
+                "rows": row_count,
+                "encoding": "utf-8",
+                "delimiter": ",",
+            }
+        )
+    (DEALER_DIR / "manifest.json").write_text(
+        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
+    )
 
 
 def main() -> None:
@@ -592,37 +1059,142 @@ def main() -> None:
     snapshots = generate_inventory_snapshots()
     gl_entries = generate_gl_entries(invoice_lines, po_lines, snapshots)
 
-    write_csv(DEALER_DIR / "items.csv",
-              ["item_no", "description", "category", "subcategory", "uom", "unit_cost", "list_price", "item_status"], items)
-    write_csv(DEALER_DIR / "salespeople.csv",
-              ["salesperson_code", "salesperson_name", "home_branch"], people)
-    write_csv(DEALER_DIR / "customers.csv",
-              ["customer_no", "customer_name", "customer_class", "terms", "credit_limit",
-               "address1", "city", "state", "postal_code"], customers)
-    write_csv(DEALER_DIR / "vendors.csv",
-              ["vendor_no", "vendor_name", "terms", "lead_time_days"], vendors)
-    write_csv(DEALER_DIR / "sales_order_lines.csv",
-              ["order_no", "line_no", "order_date", "customer_no", "branch_code", "salesperson_code",
-               "item_no", "uom", "ordered_qty", "filled_qty", "cancelled_qty", "unit_price",
-               "unit_cost", "promised_date", "shipped_date", "order_status"], order_lines)
-    write_csv(DEALER_DIR / "purchase_order_lines.csv",
-              ["po_no", "line_no", "po_date", "vendor_no", "branch_code", "item_no", "uom",
-               "ordered_qty", "received_qty", "unit_cost_actual", "unit_cost_standard", "received_date"], po_lines)
-    write_csv(DEALER_DIR / "invoice_lines.csv",
-              ["invoice_no", "line_no", "invoice_date", "order_no", "customer_no", "branch_code",
-               "item_no", "uom", "invoiced_qty", "unit_price", "unit_cost", "freight_amt", "tax_amt"], invoice_lines)
-    write_csv(DEALER_DIR / "inventory_snapshots.csv",
-              ["snapshot_date", "branch_code", "item_no", "on_hand_qty", "allocated_qty",
-               "on_order_qty", "backorder_qty", "unit_cost", "inventory_value"], snapshots)
-    write_csv(DEALER_DIR / "gl_entries.csv",
-              ["journal_no", "line_no", "entry_date", "branch_code", "account", "description",
-               "debit_amt", "credit_amt"], gl_entries)
+    write_csv(
+        DEALER_DIR / "items.csv",
+        [
+            "item_no",
+            "description",
+            "category",
+            "subcategory",
+            "uom",
+            "unit_cost",
+            "list_price",
+            "item_status",
+        ],
+        items,
+    )
+    write_csv(
+        DEALER_DIR / "salespeople.csv",
+        ["salesperson_code", "salesperson_name", "home_branch"],
+        people,
+    )
+    write_csv(
+        DEALER_DIR / "customers.csv",
+        [
+            "customer_no",
+            "customer_name",
+            "customer_class",
+            "terms",
+            "credit_limit",
+            "address1",
+            "city",
+            "state",
+            "postal_code",
+        ],
+        customers,
+    )
+    write_csv(
+        DEALER_DIR / "vendors.csv", ["vendor_no", "vendor_name", "terms", "lead_time_days"], vendors
+    )
+    write_csv(
+        DEALER_DIR / "sales_order_lines.csv",
+        [
+            "order_no",
+            "line_no",
+            "order_date",
+            "customer_no",
+            "branch_code",
+            "salesperson_code",
+            "item_no",
+            "uom",
+            "ordered_qty",
+            "filled_qty",
+            "cancelled_qty",
+            "unit_price",
+            "unit_cost",
+            "promised_date",
+            "shipped_date",
+            "order_status",
+        ],
+        order_lines,
+    )
+    write_csv(
+        DEALER_DIR / "purchase_order_lines.csv",
+        [
+            "po_no",
+            "line_no",
+            "po_date",
+            "vendor_no",
+            "branch_code",
+            "item_no",
+            "uom",
+            "ordered_qty",
+            "received_qty",
+            "unit_cost_actual",
+            "unit_cost_standard",
+            "received_date",
+        ],
+        po_lines,
+    )
+    write_csv(
+        DEALER_DIR / "invoice_lines.csv",
+        [
+            "invoice_no",
+            "line_no",
+            "invoice_date",
+            "order_no",
+            "customer_no",
+            "branch_code",
+            "item_no",
+            "uom",
+            "invoiced_qty",
+            "unit_price",
+            "unit_cost",
+            "freight_amt",
+            "tax_amt",
+        ],
+        invoice_lines,
+    )
+    write_csv(
+        DEALER_DIR / "inventory_snapshots.csv",
+        [
+            "snapshot_date",
+            "branch_code",
+            "item_no",
+            "on_hand_qty",
+            "allocated_qty",
+            "on_order_qty",
+            "backorder_qty",
+            "unit_cost",
+            "inventory_value",
+        ],
+        snapshots,
+    )
+    write_csv(
+        DEALER_DIR / "gl_entries.csv",
+        [
+            "journal_no",
+            "line_no",
+            "entry_date",
+            "branch_code",
+            "account",
+            "description",
+            "debit_amt",
+            "credit_amt",
+        ],
+        gl_entries,
+    )
 
     counts = {
-        "items.csv": len(items), "salespeople.csv": len(people), "customers.csv": len(customers),
-        "vendors.csv": len(vendors), "sales_order_lines.csv": len(order_lines),
-        "purchase_order_lines.csv": len(po_lines), "invoice_lines.csv": len(invoice_lines),
-        "inventory_snapshots.csv": len(snapshots), "gl_entries.csv": len(gl_entries),
+        "items.csv": len(items),
+        "salespeople.csv": len(people),
+        "customers.csv": len(customers),
+        "vendors.csv": len(vendors),
+        "sales_order_lines.csv": len(order_lines),
+        "purchase_order_lines.csv": len(po_lines),
+        "invoice_lines.csv": len(invoice_lines),
+        "inventory_snapshots.csv": len(snapshots),
+        "gl_entries.csv": len(gl_entries),
     }
 
     write_reference_seeds()

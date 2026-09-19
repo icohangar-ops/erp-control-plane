@@ -168,8 +168,7 @@ class NetsuiteConnector(BaseConnector):
 
     def _suiteql(self, payload: dict[str, object]) -> dict[str, object]:
         url = (
-            f"https://{self.source.settings['account_id']}.suitetalk.api.netsuite.com"
-            f"{SUITEQL_PATH}"
+            f"https://{self.source.settings['account_id']}.suitetalk.api.netsuite.com{SUITEQL_PATH}"
         )
         body = json.dumps(payload)
         authorization = self._oauth1_header(url, "POST")
@@ -219,4 +218,4 @@ class NetsuiteConnector(BaseConnector):
         ).decode()
         params["oauth_signature"] = signature
         header = ", ".join(f'{k}="{urllib.parse.quote(v, safe="")}"' for k, v in params.items())
-        return f"OAuth {header}, realm=\"{realm}\""
+        return f'OAuth {header}, realm="{realm}"'

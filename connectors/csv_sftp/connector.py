@@ -136,7 +136,7 @@ class CsvSftpConnector(BaseConnector):
     def entities(self) -> list[str]:
         return list(self.natural_key_fields)
 
-    _ARROW_TYPE_BY_KIND = {
+    _ARROW_TYPE_BY_KIND: ClassVar[dict[str, pa.DataType]] = {
         "string": pa.string(),
         "integer": pa.int64(),
         "decimal": pa.decimal128(38, 9),  # wide enough for any money/qty value
@@ -145,9 +145,7 @@ class CsvSftpConnector(BaseConnector):
 
     def arrow_schema(self, entity: str) -> pa.Schema:
         spec = self._schemas[entity]
-        fields = [
-            pa.field(c["name"], self._ARROW_TYPE_BY_KIND[c["type"]]) for c in spec["columns"]
-        ]
+        fields = [pa.field(c["name"], self._ARROW_TYPE_BY_KIND[c["type"]]) for c in spec["columns"]]
         # Provenance stamps the base writer appends (see base._stamp and
         # CONNECTOR_STAMPED_COLUMNS); loaded_at is an ISO string.
         fields += [
@@ -270,7 +268,9 @@ class CsvSftpConnector(BaseConnector):
     # Gate implementations
     # ------------------------------------------------------------------
 
-    def _validated_rows(self, spec: dict, file_name: str, entry) -> tuple[list[dict[str, object]], str]:
+    def _validated_rows(
+        self, spec: dict, file_name: str, entry
+    ) -> tuple[list[dict[str, object]], str]:
         local_path = self._drop_root() / file_name
         if not local_path.exists():
             self._quarantine(
@@ -296,7 +296,9 @@ class CsvSftpConnector(BaseConnector):
         text = raw_bytes.decode(entry.encoding)
         reader = csv.DictReader(StringIO(text), delimiter=entry.delimiter)
         if reader.fieldnames is None:
-            self._quarantine(RC_HEADER_SCHEMA_DRIFT, "file has no header row", file_name, local_path, entry)
+            self._quarantine(
+                RC_HEADER_SCHEMA_DRIFT, "file has no header row", file_name, local_path, entry
+            )
             raise FileQuarantined(f"{file_name}: missing header row")
         header = [f.strip() for f in reader.fieldnames]
         missing = [c for c in expected_columns if c not in header]
@@ -305,7 +307,9 @@ class CsvSftpConnector(BaseConnector):
             detail = f"header is missing declared columns {missing}"
             self._quarantine(RC_HEADER_SCHEMA_DRIFT, detail, file_name, local_path, entry)
             raise FileQuarantined(f"{file_name}: {detail}")
-        allow_additive = self.source.settings.get("allow_additive_columns", "true").lower() == "true"
+        allow_additive = (
+            self.source.settings.get("allow_additive_columns", "true").lower() == "true"
+        )
         if extra and not allow_additive:
             detail = f"header carries undeclared columns {extra} (allow_additive_columns=false)"
             self._quarantine(RC_HEADER_SCHEMA_DRIFT, detail, file_name, local_path, entry)
@@ -373,6 +377,7 @@ class CsvSftpConnector(BaseConnector):
                 reason_code=reason_code,
                 detail=detail,
                 quarantine_path=quarantined_path,
+                quarantined_at=datetime.now(UTC),
             )
         )
 

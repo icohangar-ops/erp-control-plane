@@ -105,7 +105,9 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="connectors.cli", description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
-    plan = sub.add_parser("plan", help="dry-run: describe extraction plans without any network calls")
+    plan = sub.add_parser(
+        "plan", help="dry-run: describe extraction plans without any network calls"
+    )
     plan.add_argument("--source", help="limit to one source_id")
     plan.set_defaults(func=cmd_plan)
 

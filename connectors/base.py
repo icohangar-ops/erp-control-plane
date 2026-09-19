@@ -30,7 +30,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterator, Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from enum import Enum
+from enum import StrEnum
 from hashlib import sha256
 from pathlib import Path
 from typing import ClassVar
@@ -63,14 +63,14 @@ BASE_STAMPED_COLUMNS: tuple[str, ...] = ("source_system", "source_id", "loaded_a
 PARQUET_BATCH_SIZE = 25_000
 
 
-class ExtractionMode(str, Enum):
+class ExtractionMode(StrEnum):
     """Backfill = full history; Incremental = watermark-based delta."""
 
     BACKFILL = "backfill"
     INCREMENTAL = "incremental"
 
 
-class ConnectorMaturity(str, Enum):
+class ConnectorMaturity(StrEnum):
     IMPLEMENTED = "implemented"
     SKELETON = "skeleton"
 
@@ -165,7 +165,9 @@ class BaseConnector(ABC):
         fingerprint = config_fingerprint(self.source.settings)
         return self.store.register_source(self.source, fingerprint)
 
-    def extract(self, entity: str, mode: ExtractionMode = ExtractionMode.BACKFILL) -> ExtractedEntity:
+    def extract(
+        self, entity: str, mode: ExtractionMode = ExtractionMode.BACKFILL
+    ) -> ExtractedEntity:
         if entity not in self.entities():
             raise ConnectorError(
                 f"entity '{entity}' is not exposed by {self.erp_id}; "

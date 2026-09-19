@@ -138,7 +138,10 @@ class ControlPlaneStore(ABC):
 
 def _registration_from(source: SourceConfig, fingerprint: str) -> SourceRegistration:
     return SourceRegistration(
-        source_id=source.source_id, erp=source.erp, config_fingerprint=fingerprint, registered_at=_now()
+        source_id=source.source_id,
+        erp=source.erp,
+        config_fingerprint=fingerprint,
+        registered_at=_now(),
     )
 
 
@@ -181,27 +184,41 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                     enabled=excluded.enabled, registered_at=excluded.registered_at
                 """,
                 (
-                    source.source_id, source.erp, source.description, json.dumps(source.settings),
-                    fingerprint, int(source.enabled), registration.registered_at.isoformat(),
+                    source.source_id,
+                    source.erp,
+                    source.description,
+                    json.dumps(source.settings),
+                    fingerprint,
+                    int(source.enabled),
+                    registration.registered_at.isoformat(),
                 ),
             )
         return registration
 
     def get_source(self, source_id: str) -> SourceConfig | None:
-        row = self._connection().execute(
-            "SELECT * FROM source_registry WHERE source_id = ?", (source_id,)
-        ).fetchone()
+        row = (
+            self._connection()
+            .execute("SELECT * FROM source_registry WHERE source_id = ?", (source_id,))
+            .fetchone()
+        )
         return self._source_from_row(row) if row else None
 
     def list_sources(self) -> list[SourceConfig]:
-        rows = self._connection().execute("SELECT * FROM source_registry ORDER BY source_id").fetchall()
+        rows = (
+            self._connection()
+            .execute("SELECT * FROM source_registry ORDER BY source_id")
+            .fetchall()
+        )
         return [self._source_from_row(row) for row in rows]
 
     @staticmethod
     def _source_from_row(row: Any) -> SourceConfig:
         return SourceConfig(
-            source_id=row["source_id"], erp=row["erp"], description=row["description"] or "",
-            settings=_settings_from_json(row["settings_json"]), enabled=bool(row["enabled"]),
+            source_id=row["source_id"],
+            erp=row["erp"],
+            description=row["description"] or "",
+            settings=_settings_from_json(row["settings_json"]),
+            enabled=bool(row["enabled"]),
         )
 
     def upsert_watermark(self, checkpoint: SyncCheckpoint) -> None:
@@ -214,16 +231,23 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                     watermark=excluded.watermark, updated_at=excluded.updated_at
                 """,
                 (
-                    checkpoint.source_id, checkpoint.entity, checkpoint.mode,
-                    checkpoint.watermark, checkpoint.updated_at.isoformat(),
+                    checkpoint.source_id,
+                    checkpoint.entity,
+                    checkpoint.mode,
+                    checkpoint.watermark,
+                    checkpoint.updated_at.isoformat(),
                 ),
             )
 
     def get_watermark(self, source_id: str, entity: str, mode: str) -> str | None:
-        row = self._connection().execute(
-            "SELECT watermark FROM sync_state WHERE source_id = ? AND entity = ? AND mode = ?",
-            (source_id, entity, mode),
-        ).fetchone()
+        row = (
+            self._connection()
+            .execute(
+                "SELECT watermark FROM sync_state WHERE source_id = ? AND entity = ? AND mode = ?",
+                (source_id, entity, mode),
+            )
+            .fetchone()
+        )
         return row["watermark"] if row else None
 
     def record_file_audit(self, record: FileAuditRecord) -> None:
@@ -236,16 +260,27 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    record.source_id, record.batch_id, record.file_name, record.file_hash,
-                    record.rows_declared, record.rows_parsed, record.status, record.reason_code,
+                    record.source_id,
+                    record.batch_id,
+                    record.file_name,
+                    record.file_hash,
+                    record.rows_declared,
+                    record.rows_parsed,
+                    record.status,
+                    record.reason_code,
                     record.processed_at.isoformat(),
                 ),
             )
 
     def has_file_been_processed(self, source_id: str, file_hash: str) -> bool:
-        row = self._connection().execute(
-            "SELECT 1 FROM file_audit WHERE source_id = ? AND file_hash = ?", (source_id, file_hash)
-        ).fetchone()
+        row = (
+            self._connection()
+            .execute(
+                "SELECT 1 FROM file_audit WHERE source_id = ? AND file_hash = ?",
+                (source_id, file_hash),
+            )
+            .fetchone()
+        )
         return row is not None
 
     def record_quarantine(self, record: QuarantineRecord) -> None:
@@ -258,23 +293,40 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
-                    uuid.uuid4().hex, record.source_id, record.batch_id, record.file_name,
-                    record.reason_code, record.detail, record.quarantine_path,
+                    uuid.uuid4().hex,
+                    record.source_id,
+                    record.batch_id,
+                    record.file_name,
+                    record.reason_code,
+                    record.detail,
+                    record.quarantine_path,
                     record.quarantined_at.isoformat(),
                 ),
             )
 
     def list_quarantine(self, source_id: str | None = None) -> list[QuarantineRecord]:
         if source_id:
-            rows = self._connection().execute(
-                "SELECT * FROM quarantine WHERE source_id = ? ORDER BY quarantined_at", (source_id,)
-            ).fetchall()
+            rows = (
+                self._connection()
+                .execute(
+                    "SELECT * FROM quarantine WHERE source_id = ? ORDER BY quarantined_at",
+                    (source_id,),
+                )
+                .fetchall()
+            )
         else:
-            rows = self._connection().execute("SELECT * FROM quarantine ORDER BY quarantined_at").fetchall()
+            rows = (
+                self._connection()
+                .execute("SELECT * FROM quarantine ORDER BY quarantined_at")
+                .fetchall()
+            )
         return [
             QuarantineRecord(
-                source_id=r["source_id"], batch_id=r["batch_id"], file_name=r["file_name"],
-                reason_code=r["reason_code"], detail=r["detail"] or "",
+                source_id=r["source_id"],
+                batch_id=r["batch_id"],
+                file_name=r["file_name"],
+                reason_code=r["reason_code"],
+                detail=r["detail"] or "",
                 quarantine_path=r["quarantine_path"] or "",
                 quarantined_at=datetime.fromisoformat(r["quarantined_at"]),
             )
@@ -291,7 +343,16 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                     (result_id, source_id, entity, check_name, severity, status, detail, evaluated_at)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
-                (uuid.uuid4().hex, source_id, entity, check_name, severity, status, detail, _now().isoformat()),
+                (
+                    uuid.uuid4().hex,
+                    source_id,
+                    entity,
+                    check_name,
+                    severity,
+                    status,
+                    detail,
+                    _now().isoformat(),
+                ),
             )
 
     def close(self) -> None:
@@ -310,7 +371,7 @@ class PostgresControlPlaneStore(ControlPlaneStore):
 
     def _connection(self) -> Any:
         if self._conn is None:
-            import psycopg2  # noqa: PLC0415 — optional dependency, demo path never imports it
+            import psycopg2
 
             self._conn = psycopg2.connect(self.dsn)
         return self._conn
@@ -338,8 +399,13 @@ class PostgresControlPlaneStore(ControlPlaneStore):
                     enabled=EXCLUDED.enabled, registered_at=EXCLUDED.registered_at
                 """,
                 (
-                    source.source_id, source.erp, source.description, json.dumps(source.settings),
-                    fingerprint, int(source.enabled), registration.registered_at,
+                    source.source_id,
+                    source.erp,
+                    source.description,
+                    json.dumps(source.settings),
+                    fingerprint,
+                    int(source.enabled),
+                    registration.registered_at,
                 ),
             )
         conn.commit()
@@ -355,8 +421,11 @@ class PostgresControlPlaneStore(ControlPlaneStore):
         if not row:
             return None
         return SourceConfig(
-            source_id=row[0], erp=row[1], description=row[2] or "",
-            settings=_settings_from_json(row[3]), enabled=bool(row[4]),
+            source_id=row[0],
+            erp=row[1],
+            description=row[2] or "",
+            settings=_settings_from_json(row[3]),
+            enabled=bool(row[4]),
         )
 
     def list_sources(self) -> list[SourceConfig]:
@@ -367,8 +436,11 @@ class PostgresControlPlaneStore(ControlPlaneStore):
             rows = cur.fetchall()
         return [
             SourceConfig(
-                source_id=r[0], erp=r[1], description=r[2] or "",
-                settings=_settings_from_json(r[3]), enabled=bool(r[4]),
+                source_id=r[0],
+                erp=r[1],
+                description=r[2] or "",
+                settings=_settings_from_json(r[3]),
+                enabled=bool(r[4]),
             )
             for r in rows
         ]
@@ -384,8 +456,11 @@ class PostgresControlPlaneStore(ControlPlaneStore):
                     watermark=EXCLUDED.watermark, updated_at=EXCLUDED.updated_at
                 """,
                 (
-                    checkpoint.source_id, checkpoint.entity, checkpoint.mode,
-                    checkpoint.watermark, checkpoint.updated_at,
+                    checkpoint.source_id,
+                    checkpoint.entity,
+                    checkpoint.mode,
+                    checkpoint.watermark,
+                    checkpoint.updated_at,
                 ),
             )
         conn.commit()
@@ -411,8 +486,14 @@ class PostgresControlPlaneStore(ControlPlaneStore):
                 ON CONFLICT (source_id, file_hash) DO NOTHING
                 """,
                 (
-                    record.source_id, record.batch_id, record.file_name, record.file_hash,
-                    record.rows_declared, record.rows_parsed, record.status, record.reason_code,
+                    record.source_id,
+                    record.batch_id,
+                    record.file_name,
+                    record.file_hash,
+                    record.rows_declared,
+                    record.rows_parsed,
+                    record.status,
+                    record.reason_code,
                     record.processed_at,
                 ),
             )
@@ -437,8 +518,14 @@ class PostgresControlPlaneStore(ControlPlaneStore):
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
-                    uuid.uuid4().hex, record.source_id, record.batch_id, record.file_name,
-                    record.reason_code, record.detail, record.quarantine_path, record.quarantined_at,
+                    uuid.uuid4().hex,
+                    record.source_id,
+                    record.batch_id,
+                    record.file_name,
+                    record.reason_code,
+                    record.detail,
+                    record.quarantine_path,
+                    record.quarantined_at,
                 ),
             )
         conn.commit()
@@ -446,15 +533,24 @@ class PostgresControlPlaneStore(ControlPlaneStore):
     def list_quarantine(self, source_id: str | None = None) -> list[QuarantineRecord]:
         with self._connection().cursor() as cur:
             if source_id:
-                cur.execute("SELECT * FROM quarantine WHERE source_id = %s ORDER BY quarantined_at", (source_id,))
+                cur.execute(
+                    "SELECT * FROM quarantine WHERE source_id = %s ORDER BY quarantined_at",
+                    (source_id,),
+                )
             else:
                 cur.execute("SELECT * FROM quarantine ORDER BY quarantined_at")
             rows = cur.fetchall()
         return [
             QuarantineRecord(
-                source_id=r[1], batch_id=r[2], file_name=r[3], reason_code=r[4],
-                detail=r[5] or "", quarantine_path=r[6] or "",
-                quarantined_at=r[7] if isinstance(r[7], datetime) else datetime.fromisoformat(str(r[7])),
+                source_id=r[1],
+                batch_id=r[2],
+                file_name=r[3],
+                reason_code=r[4],
+                detail=r[5] or "",
+                quarantine_path=r[6] or "",
+                quarantined_at=r[7]
+                if isinstance(r[7], datetime)
+                else datetime.fromisoformat(str(r[7])),
             )
             for r in rows
         ]

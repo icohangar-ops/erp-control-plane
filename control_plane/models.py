@@ -30,7 +30,7 @@ class SourceRegistration:
 
 @dataclass(frozen=True)
 class SyncCheckpoint:
-    """Watermark for one source×entity — the incremental sync cursor.
+    """Watermark for one source-entity pair — the incremental sync cursor.
 
     The semantics of `watermark` are connector-defined: a last-modified
     timestamp for API sources, a batch id or sequence for file drops.

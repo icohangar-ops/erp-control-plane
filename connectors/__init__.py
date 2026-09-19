@@ -11,19 +11,19 @@ from connectors.base import (
     ConnectorMaturity,
     ConnectorNotConfigured,
     ConnectorNotImplemented,
+    ExtractedEntity,
     ExtractionMode,
     ExtractionPlan,
-    ExtractedEntity,
 )
 
 __all__ = [
+    "PROVENANCE_COLUMNS",
     "BaseConnector",
     "ConnectorError",
     "ConnectorMaturity",
     "ConnectorNotConfigured",
     "ConnectorNotImplemented",
+    "ExtractedEntity",
     "ExtractionMode",
     "ExtractionPlan",
-    "ExtractedEntity",
-    "PROVENANCE_COLUMNS",
 ]

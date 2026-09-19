@@ -7,9 +7,9 @@ documents the full surface; the compose stack injects the same variables.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Mapping
 
 from dotenv import load_dotenv
 
@@ -59,7 +59,9 @@ class ControlPlaneConfig:
             sqlite_path = Path("./data/control_plane.db")  # sane demo default; overridable via .env
         dsn = env.get("CONTROL_PLANE_DSN")
         if backend == POSTGRES_BACKEND and not dsn:
-            raise MissingConfiguration("CONTROL_PLANE_DSN is required when CONTROL_PLANE_BACKEND=postgres")
+            raise MissingConfiguration(
+                "CONTROL_PLANE_DSN is required when CONTROL_PLANE_BACKEND=postgres"
+            )
         return cls(
             backend=backend,
             sqlite_path=sqlite_path,

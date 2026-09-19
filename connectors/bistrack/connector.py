@@ -29,7 +29,6 @@ from typing import ClassVar
 
 from connectors.base import (
     ConnectorError,
-    ConnectorMaturity,
     ConnectorNotImplemented,
     ExtractionMode,
     ExtractionPlan,
@@ -133,9 +132,7 @@ class BisTrackConnector(SkeletonConnector):
                 f"entity '{entity}' is not declared by bistrack; declared: "
                 f"{', '.join(sorted(self.natural_key_fields))}"
             )
-        surface = (
-            _ODBC_SURFACE[entity] if self.mode == ODBC_MODE else _SMARTVIEW_SURFACE[entity]
-        )
+        surface = _ODBC_SURFACE[entity] if self.mode == ODBC_MODE else _SMARTVIEW_SURFACE[entity]
         return ExtractionPlan(
             entity=entity,
             surface=surface,
