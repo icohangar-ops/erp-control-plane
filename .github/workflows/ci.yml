@@ -47,3 +47,30 @@ jobs:
       - uses: actions/checkout@v4
       - run: docker compose config -q
       - run: docker compose --profile bi config -q
+      - name: GenBI profile validates (spec §2)
+        run: docker compose --profile genbi config -q
+      - name: GenBI offline profile validates
+        run: docker compose --profile genbi --profile genbi-offline config -q
+
+  genbi:
+    # GenBI Phase 1: curated MDL validation + spec §3.3 dbt↔MDL coupling gate.
+    # A dbt change that alters mart grain or a metric column fails here unless
+    # the corresponding MDL model is updated in the same PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e . dbt-duckdb
+      - name: Build dbt artifacts and marts
+        run: |
+          mkdir -p data/analytics
+          python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
+          python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
+          dbt build --project-dir dbt --profiles-dir dbt --target demo
+          dbt docs generate --project-dir dbt --profiles-dir dbt --target demo
+      - name: Validate curated MDL (structure, boundary, coupling, executability)
+        run: python -m genbi.mdl_gen validate --duckdb data/analytics/analytics.duckdb
+      - name: Enforce dbt↔MDL coupling (spec §3.3)
+        run: python -m genbi.mdl_gen check-coupling

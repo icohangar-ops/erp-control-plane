@@ -1,0 +1,75 @@
+name: dim_item
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_item
+columns:
+- name: item_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Foreign key to dim_item.
+  is_primary_key: true
+- name: source_item_no
+  type: VARCHAR
+  properties:
+    description: Native item number in the source ERP; kept for lineage and crosswalk back to the source.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: description
+  type: VARCHAR
+  properties:
+    description: Item description as sold in the branch system.
+  is_primary_key: false
+- name: category
+  type: VARCHAR
+  properties:
+    description: Merchandising category.
+  is_primary_key: false
+- name: subcategory
+  type: VARCHAR
+  properties:
+    description: Merchandising subcategory; may be empty for unclassified items.
+  is_primary_key: false
+- name: category_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_item_category.
+  is_primary_key: false
+- name: uom
+  type: VARCHAR
+  properties:
+    description: Selling unit of measure.
+  is_primary_key: false
+- name: current_unit_cost
+  type: DECIMAL(38,9)
+  properties:
+    description: Most recent standard cost in USD.
+  is_primary_key: false
+- name: current_list_price
+  type: DECIMAL(38,9)
+  properties:
+    description: Most recent list price in USD.
+  is_primary_key: false
+- name: item_status
+  type: VARCHAR
+  properties:
+    description: Item lifecycle status (e.g. active, inactive, discontinued).
+  is_primary_key: false
+- name: last_batch_id
+  type: VARCHAR
+  properties:
+    description: Last batch id (VARCHAR).
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: Golden item master; one row per canonical item across sources.
+primary_key: item_key

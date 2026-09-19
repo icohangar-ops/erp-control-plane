@@ -1,0 +1,55 @@
+relationships:
+- name: dim_item_dim_item_category
+  models:
+  - dim_item
+  - dim_item_category
+  join_type: MANY_TO_ONE
+  condition: dim_item.category_key = dim_item_category.category_key
+- name: dim_ship_to_dim_customer
+  models:
+  - dim_ship_to
+  - dim_customer
+  join_type: MANY_TO_ONE
+  condition: dim_ship_to.customer_key = dim_customer.customer_key
+- name: fact_inventory_snapshot_dim_item
+  models:
+  - fact_inventory_snapshot
+  - dim_item
+  join_type: MANY_TO_ONE
+  condition: fact_inventory_snapshot.item_key = dim_item.item_key
+- name: fact_invoice_line_dim_customer
+  models:
+  - fact_invoice_line
+  - dim_customer
+  join_type: MANY_TO_ONE
+  condition: fact_invoice_line.customer_key = dim_customer.customer_key
+- name: fact_invoice_line_dim_item
+  models:
+  - fact_invoice_line
+  - dim_item
+  join_type: MANY_TO_ONE
+  condition: fact_invoice_line.item_key = dim_item.item_key
+- name: fact_purchase_order_line_dim_vendor
+  models:
+  - fact_purchase_order_line
+  - dim_vendor
+  join_type: MANY_TO_ONE
+  condition: fact_purchase_order_line.vendor_key = dim_vendor.vendor_key
+- name: fact_purchase_order_line_dim_item
+  models:
+  - fact_purchase_order_line
+  - dim_item
+  join_type: MANY_TO_ONE
+  condition: fact_purchase_order_line.item_key = dim_item.item_key
+- name: fact_sales_order_line_dim_customer
+  models:
+  - fact_sales_order_line
+  - dim_customer
+  join_type: MANY_TO_ONE
+  condition: fact_sales_order_line.customer_key = dim_customer.customer_key
+- name: fact_sales_order_line_dim_item
+  models:
+  - fact_sales_order_line
+  - dim_item
+  join_type: MANY_TO_ONE
+  condition: fact_sales_order_line.item_key = dim_item.item_key

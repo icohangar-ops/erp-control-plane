@@ -1,0 +1,25 @@
+name: dim_item_category
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_item_category
+columns:
+- name: category_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Foreign key to dim_item_category.
+  is_primary_key: true
+- name: category
+  type: VARCHAR
+  properties:
+    description: Merchandising category.
+  is_primary_key: false
+- name: subcategory
+  type: VARCHAR
+  properties:
+    description: Merchandising subcategory; may be empty for unclassified items.
+  is_primary_key: false
+properties:
+  description: One row per merchandising category/subcategory pair assigned during canonicalization.
+primary_key: category_key

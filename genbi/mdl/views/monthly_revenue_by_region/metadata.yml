@@ -1,0 +1,6 @@
+name: monthly_revenue_by_region
+statement: SELECT d.month_start_date AS month, l.region, SUM(f.revenue_amount) AS revenue, SUM(f.gross_margin_amount)
+  AS gross_margin FROM fact_invoice_line f JOIN dim_date d ON f.invoice_date = d.date_key JOIN dim_location
+  l ON f.location_key = l.location_key GROUP BY 1, 2 ORDER BY 1, 2
+properties:
+  description: Monthly invoiced revenue by sales region (governed view).

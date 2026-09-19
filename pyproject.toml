@@ -48,6 +48,9 @@ include = ["connectors*", "control_plane*"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+# Vendored upstream code (Wren MCP server pinned at wren-engine 47ca29e) keeps
+# its upstream formatting — do not lint or format it.
+extend-exclude = ["docker/compose/genbi/mcp-server"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]

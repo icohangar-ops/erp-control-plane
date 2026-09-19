@@ -1,0 +1,41 @@
+name: kpi_inventory
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_inventory
+columns:
+- name: window_start
+  type: DATE
+  properties:
+    description: Analysis window start (invoiced-activity bounds).
+- name: window_end
+  type: DATE
+  properties:
+    description: Analysis window end.
+- name: window_days
+  type: BIGINT
+  properties:
+    description: Analysis window length in days.
+- name: inventory_turns
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: 'Inventory turns annualized to the window: window COGS x annualization / average inventory
+      value.'
+- name: dio_days
+  type: DOUBLE
+  properties:
+    description: 'Days inventory outstanding: 365 / inventory turns.'
+- name: weeks_of_supply
+  type: DOUBLE
+  properties:
+    description: Average inventory value / (window COGS / window days x 7).
+- name: gmroi
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: 'Gross-margin return on inventory investment: annualized gross margin / average inventory
+      value.'
+properties:
+  description: 'Inventory efficiency: turns, DIO, weeks of supply, GMROI — annualized on the derived window
+    (window COGS x 365/window_days / avg monthly inventory value).'

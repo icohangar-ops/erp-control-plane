@@ -1,0 +1,55 @@
+name: dim_date
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_date
+columns:
+- name: date_key
+  type: DATE
+  not_null: true
+  properties:
+    description: Calendar date (the date dimension grain is one row per day).
+  is_primary_key: true
+- name: year_number
+  type: BIGINT
+  properties:
+    description: Calendar year.
+  is_primary_key: false
+- name: quarter_number
+  type: BIGINT
+  properties:
+    description: Calendar quarter (1-4).
+  is_primary_key: false
+- name: month_number
+  type: BIGINT
+  properties:
+    description: Calendar month (1-12).
+  is_primary_key: false
+- name: year_month
+  type: VARCHAR
+  properties:
+    description: Year-month in YYYY-MM form for grouping.
+  is_primary_key: false
+- name: day_of_month
+  type: BIGINT
+  properties:
+    description: Day of month (1-31).
+  is_primary_key: false
+- name: day_of_week
+  type: BIGINT
+  properties:
+    description: 'Day of week (DuckDB dow: 0=Sunday through 6=Saturday).'
+  is_primary_key: false
+- name: week_start_date
+  type: TIMESTAMP
+  properties:
+    description: First day of the week containing this date.
+  is_primary_key: false
+- name: month_start_date
+  type: TIMESTAMP
+  properties:
+    description: First day of the month containing this date.
+  is_primary_key: false
+properties:
+  description: Calendar spine for the analysis window.
+primary_key: date_key

@@ -1,0 +1,61 @@
+name: dim_ship_to
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_ship_to
+columns:
+- name: ship_to_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Surrogate ship-to key stable across source systems.
+  is_primary_key: true
+- name: customer_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_customer.
+  is_primary_key: false
+- name: source_customer_no
+  type: VARCHAR
+  properties:
+    description: Native customer number in the source ERP; kept for lineage and crosswalk back to the
+      source.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: ship_to_name
+  type: VARCHAR
+  properties:
+    description: Ship-to location name.
+  is_primary_key: false
+- name: ship_to_address1
+  type: VARCHAR
+  properties:
+    description: Ship-to street address.
+  is_primary_key: false
+- name: ship_to_city
+  type: VARCHAR
+  properties:
+    description: Ship-to city.
+  is_primary_key: false
+- name: ship_to_state
+  type: VARCHAR
+  properties:
+    description: Ship-to state or province.
+  is_primary_key: false
+- name: ship_to_postal_code
+  type: VARCHAR
+  properties:
+    description: Ship-to postal code.
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: One row per customer ship-to address, linked to its parent customer.
+primary_key: ship_to_key

@@ -1,0 +1,45 @@
+name: dim_location
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_location
+columns:
+- name: location_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Foreign key to dim_location.
+  is_primary_key: true
+- name: branch_code
+  type: VARCHAR
+  properties:
+    description: Branch code from the location master.
+  is_primary_key: false
+- name: branch_name
+  type: VARCHAR
+  properties:
+    description: Branch display name.
+  is_primary_key: false
+- name: region
+  type: VARCHAR
+  properties:
+    description: Sales region the branch belongs to.
+  is_primary_key: false
+- name: owned_since
+  type: DATE
+  properties:
+    description: Date the branch was acquired by the group (drives organic vs acquired revenue).
+  is_primary_key: false
+- name: fte_count
+  type: INTEGER
+  properties:
+    description: Full-time-equivalent headcount at the branch (productivity KPI denominator).
+  is_primary_key: false
+- name: canonical_location_key
+  type: VARCHAR
+  properties:
+    description: Key of the canonical location this row maps to when branches were deduplicated.
+  is_primary_key: false
+properties:
+  description: One row per branch/location, including acquisition ownership and staffing attributes.
+primary_key: location_key
