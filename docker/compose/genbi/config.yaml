@@ -11,6 +11,10 @@ models:
   - alias: default
     model: gpt-4o-mini
     context_window_size: 128000
+    # api_key_name is the NAME of the env var the provider resolves with
+    # os.getenv (LitellmLLMProvider); without it api_key stays None and
+    # every call dies with "You didn't provide an API key".
+    api_key_name: OPENAI_API_KEY
     kwargs:
       max_tokens: 4096
       n: 1
@@ -24,6 +28,7 @@ models:
   - model: text-embedding-3-large
     alias: default
     timeout: 120
+    api_key_name: OPENAI_API_KEY
 
 ---
 type: engine
@@ -141,7 +146,11 @@ settings:
   table_column_retrieval_size: 100
   allow_intent_classification: true
   allow_sql_generation_reasoning: true
-  allow_sql_functions_retrieval: true
+  # wren-ai 0.29.0: the sql_functions_retrieval pipe needs a wren_ibis engine
+  # provider, but ibis-server 0.21.3 rejects "duckdb" on /v3/connector/*/functions
+  # (its DataSource enum excludes duckdb), so the functions list can never load.
+  # Disabling skips that optional prompt enrichment instead of crashing the task.
+  allow_sql_functions_retrieval: false
   enable_column_pruning: false
   max_sql_correction_retries: 3
   query_cache_maxsize: 1000

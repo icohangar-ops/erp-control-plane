@@ -59,6 +59,11 @@ services:
       SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:-dev_only_change_me}
     volumes:
       - ./analytics/superset:/app/analytics
+      # READ_ONLY analytics DuckDB for the dealer dashboard datasets and the
+      # GenBI promotion loop's datasets (spec §4.2.6). Same container path the
+      # genbi profile mounts, so every consumer shares one canonical URI
+      # (duckdb:////data/analytics/analytics.duckdb?access_mode=READ_ONLY).
+      - ./data/analytics:/data/analytics:ro
 
 # GenBI profile (WrenAI semantic layer + NL questioning). Defined in its own
 # file, included additively — the base deployment above is unchanged.
