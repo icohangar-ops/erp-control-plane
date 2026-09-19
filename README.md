@@ -127,10 +127,10 @@ KPIs are computed with the same definitions as the dbt marts
 values by `tests/test_kpi_api.py`.
 
 Production: the demo API is deployed on Vercel at
-**https://construction-supplies-erp-control-p.vercel.app** (`GET /health`,
-`GET /kpis`). Redeploy from the repo root with
-`npx vercel deploy --prod --yes --token=<VERCEL_TOKEN>`; `.vercelignore`
-keeps the upload to the API surface.
+**https://construction-supplies-erp-control-plane.vercel.app** (`GET /health`,
+`GET /kpis`). Pushes to `main` deploy automatically via the GitHub integration
+(the commit author email must match a Git account); `.vercelignore` keeps the
+upload to the API surface for manual `npx vercel deploy --prod` runs.
 
 Local run:
 
