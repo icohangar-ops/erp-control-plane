@@ -1,0 +1,71 @@
+{
+  "batch_id": "RIDGELINE-2026-09-19-B001",
+  "generated_at": "2026-09-19T08:30:00Z",
+  "source_company": "ridgeline_lumber",
+  "schema_version": "1.0.0",
+  "files": [
+    {
+      "name": "customers.csv",
+      "sha256": "2e7a44ffa0724041e058d6aec12287d93fc87c053426b34001cb960a8ed08a36",
+      "rows": 13,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "gl_entries.csv",
+      "sha256": "6461235c8fb3f7d1e88308c4afb8c2d93da5536df05d6e194b931fe8e11443c7",
+      "rows": 531,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "inventory_snapshots.csv",
+      "sha256": "bb307ed8b758a1ce1aa1dae0a892c14d3e15e2ed8af4b1779c2d59d6810571d2",
+      "rows": 480,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "invoice_lines.csv",
+      "sha256": "f5a0d638686cb193a1db9c10cb491cc8859eb9ca79ed3e42bfec6007e2179087",
+      "rows": 1808,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "items.csv",
+      "sha256": "a872c225e047ef3006f5f7b6203e3506fdd33036777b2b00fcb414379b79dffd",
+      "rows": 32,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "purchase_order_lines.csv",
+      "sha256": "5d1badf6c6573db8026770f3906ae90c4e7dea1fbb8fd8db9c40e4f2abe5a7e7",
+      "rows": 196,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "sales_order_lines.csv",
+      "sha256": "669ac5d29b589e22bb01300ad01bfef17fad2dc3bc90dd42812f7bbb970dcb62",
+      "rows": 1930,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "salespeople.csv",
+      "sha256": "de9fbe971b74c58656f97162b2cde92818748443f8deb063f5684db57d986201",
+      "rows": 6,
+      "encoding": "utf-8",
+      "delimiter": ","
+    },
+    {
+      "name": "vendors.csv",
+      "sha256": "e184245349924fa48ac145d296eb14a39929754a6f3ee87fc10220d59b9a8a06",
+      "rows": 8,
+      "encoding": "utf-8",
+      "delimiter": ","
+    }
+  ]
+}
