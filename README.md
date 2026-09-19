@@ -116,6 +116,12 @@ KPIs are computed with the same definitions as the dbt marts
 (`dbt/models/marts/`) and pinned to the dbt-built `main_marts.kpi_headline`
 values by `tests/test_kpi_api.py`.
 
+Production: the demo API is deployed on Vercel at
+**https://construction-supplies-erp-control-p.vercel.app** (`GET /health`,
+`GET /kpis`). Redeploy from the repo root with
+`npx vercel deploy --prod --yes --token=<VERCEL_TOKEN>`; `.vercelignore`
+keeps the upload to the API surface.
+
 Local run:
 
 ```bash
