@@ -90,3 +90,21 @@ def test_http_routes():
     assert summary.json()["total_rows"] == EXPECTED_TOTAL_ROWS
 
     assert client.get("/").status_code == 200
+
+
+def test_root_serves_json_to_api_clients():
+    client = TestClient(api_index.app)
+    response = client.get("/", headers={"Accept": "application/json"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/json")
+    assert response.json()["endpoints"] == ["/health", "/data/summary", "/kpis"]
+
+
+def test_root_serves_html_landing_page_to_browsers():
+    client = TestClient(api_index.app)
+    response = client.get("/", headers={"Accept": "text/html"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/html")
+    assert "/kpis" in response.text
+    assert "GMROI" in response.text
+    assert "1.73" in response.text  # rendered from the mirrored mart SQL

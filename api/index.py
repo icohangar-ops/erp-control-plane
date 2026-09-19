@@ -3,7 +3,7 @@
 Serves the seeded Ridgeline Lumber & Supply dealer export (the same CSV
 source data the offline ``make demo`` pipeline ingests) as JSON:
 
-- ``GET /``             -- service information
+- ``GET /``             -- HTML landing page for browsers, service-info JSON otherwise
 - ``GET /health``       -- liveness + data provenance
 - ``GET /data/summary`` -- per-domain row counts, date spans, headcount
 - ``GET /kpis``         -- the full 21-metric headline KPI set
@@ -24,10 +24,12 @@ from __future__ import annotations
 
 import threading
 from pathlib import Path
+from string import Template
 from typing import Any
 
 import duckdb
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import HTMLResponse
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEALER_EXPORT_DIR = REPO_ROOT / "seed" / "dealer_export"
@@ -512,7 +514,10 @@ app = FastAPI(
 
 
 @app.get("/")
-def root() -> dict[str, Any]:
+def root(request: Request) -> Any:
+    """Service info: HTML landing page for browsers, JSON for API clients."""
+    if "text/html" in request.headers.get("accept", "").lower():
+        return HTMLResponse(_render_landing_page())
     return {
         "service": app.title,
         "version": app.version,
@@ -520,6 +525,94 @@ def root() -> dict[str, Any]:
         "endpoints": ["/health", "/data/summary", "/kpis"],
         "source_repository": "construction-supplies-erp-control-plane",
     }
+
+
+LANDING_PAGE_TEMPLATE = Template("""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ERP Control Plane — Demo API</title>
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+      Roboto, "Helvetica Neue", Arial, sans-serif;
+    background: #f6f7f5; color: #1c2430; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 2rem;
+  }
+  main { max-width: 660px; width: 100%; }
+  h1 { font-size: 1.3rem; letter-spacing: -0.01em; margin-bottom: 0.4rem; }
+  p.lede { color: #5b6572; font-size: 0.95rem; line-height: 1.55;
+           margin-bottom: 1.4rem; }
+  .kpis { display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
+          gap: 0.6rem; margin-bottom: 1.5rem; }
+  .kpi { background: #ffffff; border: 1px solid #e3e6e1;
+         border-radius: 10px; padding: 0.7rem 0.85rem; }
+  .kpi b { display: block; font-size: 1.2rem; margin-bottom: 0.15rem; }
+  .kpi span { color: #5b6572; font-size: 0.7rem; text-transform: uppercase;
+              letter-spacing: 0.05em; }
+  ul.endpoints { list-style: none; padding: 0; }
+  ul.endpoints li { margin: 0.5rem 0; color: #3d4653; }
+  a { color: #2456c4; text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code { background: #eceee9; border-radius: 5px; padding: 0.1rem 0.35rem;
+         font-size: 0.85em; }
+  footer { margin-top: 1.6rem; color: #8a939e; font-size: 0.78rem;
+           line-height: 1.5; }
+</style>
+</head>
+<body>
+<main>
+  <h1>$heading</h1>
+  <p class="lede">$lede</p>
+  <div class="kpis">$kpi_tiles</div>
+  <ul class="endpoints">
+    <li><a href="/health"><code>/health</code></a> — liveness and data provenance</li>
+    <li><a href="/data/summary"><code>/data/summary</code></a> — row counts, date spans, headcount</li>
+    <li><a href="/kpis"><code>/kpis</code></a> — the full headline KPI set as JSON</li>
+  </ul>
+  <footer>$footer</footer>
+</main>
+</body>
+</html>
+""")
+
+
+def _kpi_tiles(kpis: dict[str, Any]) -> str:
+    """Format the headline KPI tiles embedded in the landing page."""
+    tiles = [
+        ("GMROI", f"{kpis['gmroi']:.2f}"),
+        ("Inv. turns", f"{kpis['inventory_turns']:.2f}"),
+        ("Gross margin", f"{kpis['gross_margin_pct'] * 100:.1f}%"),
+        ("Line fill", f"{kpis['line_fill_rate'] * 100:.1f}%"),
+        ("Vendor fill", f"{kpis['vendor_fill_rate'] * 100:.1f}%"),
+    ]
+    return "".join(
+        f'<div class="kpi"><b>{value}</b><span>{name}</span></div>' for name, value in tiles
+    )
+
+
+def _render_landing_page() -> str:
+    """Render the browser landing page with KPI values from the mart SQL."""
+    try:
+        tiles = _kpi_tiles(compute_kpis())
+    except Exception:  # the page must render even if the data layer fails
+        tiles = '<div class="kpi"><b>—</b><span>KPIs unavailable</span></div>'
+    return LANDING_PAGE_TEMPLATE.substitute(
+        heading="Construction Supplies ERP Control Plane",
+        lede=(
+            "Read-only demo API over the seeded Ridgeline Lumber &amp; Supply "
+            "dealer dataset. Headline KPIs below are computed at request time "
+            "with the same SQL definitions as the dbt marts."
+        ),
+        kpi_tiles=tiles,
+        footer=(
+            f"{app.title} v{app.version} · read-only · authoritative KPIs are "
+            "produced by the Dagster + dbt pipeline (make demo)"
+        ),
+    )
 
 
 @app.get("/health")
