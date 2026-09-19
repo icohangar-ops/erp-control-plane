@@ -22,7 +22,7 @@ select
     s.source_row_no,
     s.batch_id,
     s.loaded_at
-from {{ ref('stg_csvsftp__purchase_order_lines') }} s
+from {{ demo_staging('purchase_order_lines') }} s
 join {{ ref('crosswalk_source_vendor') }} cv
   on cv.source_system = s.source_system and cv.source_key = s.vendor_no
 join {{ ref('crosswalk_source_item') }} ci

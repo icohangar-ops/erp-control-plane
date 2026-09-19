@@ -19,7 +19,7 @@ select
     s.source_row_no,
     s.batch_id,
     s.loaded_at
-from {{ ref('stg_csvsftp__gl_entries') }} s
+from {{ demo_staging('gl_entries') }} s
 left join {{ ref('ref_coa_mapping') }} coa
   on coa.source_company_id = 'ridgeline_lumber'
  and coa.source_gl_account = s.account

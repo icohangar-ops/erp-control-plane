@@ -10,7 +10,7 @@ select
     cast(i.loaded_at as date) as effective_from,
     cast('9999-12-31' as date) as effective_to,
     i.batch_id
-from {{ ref('stg_csvsftp__items') }} i
+from {{ demo_staging('items') }} i
 join {{ ref('crosswalk_source_item') }} ci
   on ci.source_system = i.source_system and ci.source_key = i.item_no
 where i.list_price is not null

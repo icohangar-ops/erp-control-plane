@@ -165,8 +165,10 @@ class DbApiBatchConnector(BaseConnector):
         # The watermark column rides at the tail of every SELECT so incremental
         # runs can observe it; it is observed, never staged (it is not a
         # canonical column and the Arrow schema would drop it anyway).
+        # The driver returns it in both modes — _select_sql appends it
+        # unconditionally — so the width check must count it in BACKFILL too.
         observe = src.incremental_column is not None and mode is ExtractionMode.INCREMENTAL
-        expected_width = len(canonical_names) + (1 if observe else 0)
+        expected_width = len(canonical_names) + (1 if src.incremental_column is not None else 0)
         cursor = self._connect().cursor()
         try:
             cursor.execute(sql, params or None)

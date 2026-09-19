@@ -23,6 +23,28 @@ sources:
       allow_additive_columns: "true"
 
   # ------------------------------------------------------------------
+  # Demo Informix tenant: the SAME seeded Ridgeline export standing in for
+  # the dealer's Informix ERP, loaded through the legacy connector pack
+  # (spec §5 row 1). demo/run_informix_demo.py builds the stand-in database
+  # (ifx_* tables) and drives InformixConnector over a DB-API connection
+  # factory — the real watermark/provenance/anti-join machinery; only the
+  # pyodbc transport is stood in. Ships disabled (like every demo-adjacent
+  # source; the demo runner enables it in memory so `make demo` and CI keep
+  # csvsftp_ridgeline as the only enabled source).
+  # ------------------------------------------------------------------
+  - source_id: informix_demo
+    erp: informix
+    description: >
+      Ridgeline Lumber & Supply — demo Informix surface (seed dealer export
+      loaded into a stand-in Informix-shaped database). Demonstrates the
+      legacy SQL connector pack end to end per the GenBI spec §5 row 1.
+    enabled: false
+    settings:
+      odbc_dsn: "ifx_demo_standin"
+      db_user: "demo"
+      db_password: "demo"
+
+  # ------------------------------------------------------------------
   # Credential-gated first-wave adapters. Coded to the documented extraction
   # surface but NOT exercised against a live tenant. Enable only after
   # sandbox-tenant discovery per docs/CONNECTOR_GUIDE.md.

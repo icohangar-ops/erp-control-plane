@@ -17,6 +17,6 @@ select
     s.source_row_no,
     s.batch_id,
     s.loaded_at
-from {{ ref('stg_csvsftp__inventory_snapshots') }} s
+from {{ demo_staging('inventory_snapshots') }} s
 join {{ ref('crosswalk_source_item') }} ci
   on ci.source_system = s.source_system and ci.source_key = s.item_no

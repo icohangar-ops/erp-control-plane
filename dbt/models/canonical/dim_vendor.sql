@@ -7,6 +7,6 @@ select
     v.terms,
     v.lead_time_days,
     v.loaded_at
-from {{ ref('stg_csvsftp__vendors') }} v
+from {{ demo_staging('vendors') }} v
 join {{ ref('crosswalk_source_vendor') }} cv
   on cv.source_system = v.source_system and cv.source_key = v.vendor_no
