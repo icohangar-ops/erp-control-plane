@@ -1,0 +1,127 @@
+# Approved schema registry for CSV/SFTP file sources.
+#
+# Each entry declares the expected header of one dealer-export file. The
+# connector validates every arriving file's header against this registry
+# before parsing (see docs/ARCHITECTURE.md §SFTP ingestion pattern):
+#   - missing or renamed column  -> HEADER_SCHEMA_DRIFT (quarantine)
+#   - extra columns              -> allowed when the source's
+#                                   allow_additive_columns setting is true
+# Row-level casts: string | integer | decimal | date (ISO YYYY-MM-DD).
+
+items:
+  file: items.csv
+  columns:
+    - {name: item_no, type: string}
+    - {name: description, type: string}
+    - {name: category, type: string}
+    - {name: subcategory, type: string}
+    - {name: uom, type: string}
+    - {name: unit_cost, type: decimal}
+    - {name: list_price, type: decimal}
+    - {name: item_status, type: string}
+
+salespeople:
+  file: salespeople.csv
+  columns:
+    - {name: salesperson_code, type: string}
+    - {name: salesperson_name, type: string}
+    - {name: home_branch, type: string}
+
+customers:
+  file: customers.csv
+  columns:
+    - {name: customer_no, type: string}
+    - {name: customer_name, type: string}
+    - {name: customer_class, type: string}
+    - {name: terms, type: string}
+    - {name: credit_limit, type: decimal}
+    - {name: address1, type: string}
+    - {name: city, type: string}
+    - {name: state, type: string}
+    - {name: postal_code, type: string}
+
+vendors:
+  file: vendors.csv
+  columns:
+    - {name: vendor_no, type: string}
+    - {name: vendor_name, type: string}
+    - {name: terms, type: string}
+    - {name: lead_time_days, type: integer}
+
+sales_order_lines:
+  file: sales_order_lines.csv
+  columns:
+    - {name: order_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: order_date, type: date}
+    - {name: customer_no, type: string}
+    - {name: branch_code, type: string}
+    - {name: salesperson_code, type: string}
+    - {name: item_no, type: string}
+    - {name: uom, type: string}
+    - {name: ordered_qty, type: integer}
+    - {name: filled_qty, type: integer}
+    - {name: cancelled_qty, type: integer}
+    - {name: unit_price, type: decimal}
+    - {name: unit_cost, type: decimal}
+    - {name: promised_date, type: date}
+    - {name: shipped_date, type: date}
+    - {name: order_status, type: string}
+
+purchase_order_lines:
+  file: purchase_order_lines.csv
+  columns:
+    - {name: po_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: po_date, type: date}
+    - {name: vendor_no, type: string}
+    - {name: branch_code, type: string}
+    - {name: item_no, type: string}
+    - {name: uom, type: string}
+    - {name: ordered_qty, type: integer}
+    - {name: received_qty, type: integer}
+    - {name: unit_cost_actual, type: decimal}
+    - {name: unit_cost_standard, type: decimal}
+    - {name: received_date, type: date}
+
+invoice_lines:
+  file: invoice_lines.csv
+  columns:
+    - {name: invoice_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: invoice_date, type: date}
+    - {name: order_no, type: string}
+    - {name: customer_no, type: string}
+    - {name: branch_code, type: string}
+    - {name: item_no, type: string}
+    - {name: uom, type: string}
+    - {name: invoiced_qty, type: integer}
+    - {name: unit_price, type: decimal}
+    - {name: unit_cost, type: decimal}
+    - {name: freight_amt, type: decimal}
+    - {name: tax_amt, type: decimal}
+
+inventory_snapshots:
+  file: inventory_snapshots.csv
+  columns:
+    - {name: snapshot_date, type: date}
+    - {name: branch_code, type: string}
+    - {name: item_no, type: string}
+    - {name: on_hand_qty, type: integer}
+    - {name: allocated_qty, type: integer}
+    - {name: on_order_qty, type: integer}
+    - {name: backorder_qty, type: integer}
+    - {name: unit_cost, type: decimal}
+    - {name: inventory_value, type: decimal}
+
+gl_entries:
+  file: gl_entries.csv
+  columns:
+    - {name: journal_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: entry_date, type: date}
+    - {name: branch_code, type: string}
+    - {name: account, type: string}
+    - {name: description, type: string}
+    - {name: debit_amt, type: decimal}
+    - {name: credit_amt, type: decimal}

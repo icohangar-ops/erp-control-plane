@@ -1,0 +1,124 @@
+# Source registry — every connector the control plane knows about.
+#
+# Settings values support env-var interpolation: ${VAR} or ${VAR:-default}
+# (resolved at load time; secrets stay in the environment, never in this file).
+# `enabled: false` sources are registered templates: importable, plannable via
+# dry-run, and excluded from extraction until per-tenant discovery completes.
+
+version: 1
+
+sources:
+  # ------------------------------------------------------------------
+  # Demo tenant: Ridgeline Lumber & Supply (fictional acquired dealer).
+  # Fully working csv_sftp path over the seeded export in demo/dealer_export.
+  # ------------------------------------------------------------------
+  - source_id: csvsftp_ridgeline
+    erp: csv_sftp
+    description: >
+      Ridgeline Lumber & Supply — seeded demo dealer. Nightly SFTP drop of
+      CSV exports with a manifest control file (simulated locally).
+    enabled: true
+    settings:
+      drop_root: ${CSV_SFTP_DROP_ROOT:-seed/dealer_export}
+      allow_additive_columns: "true"
+
+  # ------------------------------------------------------------------
+  # Credential-gated first-wave adapters. Coded to the documented extraction
+  # surface but NOT exercised against a live tenant. Enable only after
+  # sandbox-tenant discovery per docs/CONNECTOR_GUIDE.md.
+  # ------------------------------------------------------------------
+  - source_id: netsuite_template
+    erp: netsuite
+    description: >
+      NetSuite (SuiteQL / SuiteAnalytics workbook) adapter — coded against the
+      documented REST API but UNEXERCISED pending tenant credentials.
+    enabled: false
+    settings:
+      account_id: ${NETSUITE_ACCOUNT_ID:-}
+      consumer_key: ${NETSUITE_CONSUMER_KEY:-}
+      consumer_secret: ${NETSUITE_CONSUMER_SECRET:-}
+      token_id: ${NETSUITE_TOKEN_ID:-}
+      token_secret: ${NETSUITE_TOKEN_SECRET:-}
+      realm: ${NETSUITE_REALM:-}
+      api_version: ${NETSUITE_API_VERSION:-2024_1}
+
+  # ------------------------------------------------------------------
+  # Documented skeletons — extraction surface noted, implementation deferred
+  # to per-acquisition discovery. Each still exposes entities(), a plan, and
+  # a dry-run; extract() raises ConnectorNotImplemented.
+  # ------------------------------------------------------------------
+  - source_id: bistrack_template
+    erp: bistrack
+    description: >
+      BisTrack (Epicor) — read-only ODBC to the on-prem SQL DB, or BisTrack
+      Web Smart View API where deployed.
+    enabled: false
+    settings:
+      mode: ${BISTRACK_MODE:-odbc}
+      odbc_dsn: ${BISTRACK_ODBC_DSN:-}
+      db_user: ${BISTRACK_DB_USER:-}
+      db_password: ${BISTRACK_DB_PASSWORD:-}
+      smartview_base_url: ${BISTRACK_SMARTVIEW_URL:-}
+      smartview_api_key: ${BISTRACK_SMARTVIEW_KEY:-}
+
+  - source_id: dmsi_agility_template
+    erp: dmsi_agility
+    description: >
+      DMSi Agility — REST API extraction; skeleton pending tenant sandbox
+      access and endpoint inventory.
+    enabled: false
+    settings:
+      base_url: ${DMSI_BASE_URL:-}
+      client_id: ${DMSI_CLIENT_ID:-}
+      client_secret: ${DMSI_CLIENT_SECRET:-}
+
+  - source_id: epicor_p21_template
+    erp: epicor_p21
+    description: >
+      Epicor Prophet 21 — SQL Server views or OData API; skeleton pending
+      customer deployment architecture (on-prem vs cloud).
+    enabled: false
+    settings:
+      mode: ${P21_MODE:-sql}
+      sql_dsn: ${P21_SQL_DSN:-}
+      odata_base_url: ${P21_ODATA_URL:-}
+      odata_user: ${P21_ODATA_USER:-}
+      odata_password: ${P21_ODATA_PASSWORD:-}
+
+  - source_id: epicor_eclipse_template
+    erp: epicor_eclipse
+    description: >
+      Epicor Eclipse — REST-only API over InterSystems Caché; skeleton pending
+      API user provisioning on the tenant.
+    enabled: false
+    settings:
+      base_url: ${ECLIPSE_BASE_URL:-}
+      username: ${ECLIPSE_USERNAME:-}
+      password: ${ECLIPSE_PASSWORD:-}
+
+  - source_id: eci_spruce_template
+    erp: eci_spruce
+    description: >
+      ECI Spruce / RockSolid MAX — SOAP web services (RockSolid) or CSV export
+      fallback (Spruce); skeleton pending vendor account and WSDL review.
+    enabled: false
+    settings:
+      product: ${ECI_PRODUCT:-spruce}
+      wsdl_url: ${ECI_WSDL_URL:-}
+      username: ${ECI_USERNAME:-}
+      password: ${ECI_PASSWORD:-}
+      csv_drop_root: ${ECI_CSV_DROP_ROOT:-}
+
+  - source_id: d365_bc_template
+    erp: d365_bc
+    description: >
+      Dynamics 365 Business Central — API v2 (OAuth2) with BACPAC backfill
+      for history; skeleton pending Entra app registration on the tenant.
+    enabled: false
+    settings:
+      tenant_id: ${D365BC_TENANT_ID:-}
+      client_id: ${D365BC_CLIENT_ID:-}
+      client_secret: ${D365BC_CLIENT_SECRET:-}
+      environment: ${D365BC_ENVIRONMENT:-}
+      company_id: ${D365BC_COMPANY_ID:-}
+      api_version: ${D365BC_API_VERSION:-v2.0}
