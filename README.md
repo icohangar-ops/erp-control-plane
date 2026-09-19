@@ -99,6 +99,16 @@ KPI sign-off → scheduled increments.
 - Superset deployments must configure RLS per dealer/branch
   (`analytics/README.md`).
 
+## Dealer KPI dashboard (Apache Superset)
+
+The Ridgeline dealer KPI dashboard, provisioned idempotently by
+[`analytics/superset/build_dashboard.py`](analytics/superset/build_dashboard.py)
+(start it with `make up BI=1`):
+
+![Ridgeline dealer KPI dashboard — headline tiles and charts](docs/assets/superset/dashboard-top.png)
+
+![Ridgeline dealer KPI dashboard — revenue and fill-rate charts](docs/assets/superset/dashboard-mid.png)
+
 ## Demo API (serverless-ready)
 
 `api/index.py` is a lean FastAPI + DuckDB API over the seeded dealer data — the
@@ -107,7 +117,7 @@ in `pyproject.toml`; serverless deps in `requirements.txt`). The heavy pipeline
 (Dagster, dbt, Superset, Postgres) is not deployed serverless — use Docker
 Compose for the full topology.
 
-- `GET /` — service info
+- `GET /` — service info (HTML landing page for browsers, JSON for API clients)
 - `GET /health` — liveness + data provenance
 - `GET /data/summary` — per-domain row counts, date spans, headcount
 - `GET /kpis` — the full 21-metric headline KPI set
