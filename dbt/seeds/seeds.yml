@@ -1,0 +1,21 @@
+version: 2
+
+seeds:
+  - name: seed_branches
+    description: Group branch master with acquisition ownership dates and FTE counts.
+    config:
+      column_types:
+        owned_since: date
+        fte_count: integer
+  - name: seed_coa_mapping
+    description: Effective-dated source-GL-account to consolidated-account mapping.
+    config:
+      column_types:
+        effective_start_date: date
+        effective_end_date: date
+  - name: seed_close_calendar
+    description: Period close completion dates used for the close-cycle-time KPI.
+    config:
+      column_types:
+        period_end_date: date
+        close_completed_on: date

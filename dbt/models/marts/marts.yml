@@ -1,0 +1,49 @@
+version: 2
+
+models:
+  - name: kpi_window
+    description: Derived analysis window and annualization factor.
+  - name: kpi_inventory
+    description: >
+      Inventory efficiency: turns, DIO, weeks of supply, GMROI — annualized
+      on the derived window (window COGS x 365/window_days / avg monthly
+      inventory value).
+    columns:
+      - name: gmroi
+        tests: [not_null]
+      - name: inventory_turns
+        tests: [not_null]
+  - name: kpi_service
+    description: Line fill, order fill, OTD, OTIF, backorder rate.
+    columns:
+      - name: line_fill_rate
+        tests: [not_null]
+      - name: order_fill_rate
+        tests: [not_null]
+  - name: kpi_purchasing
+    description: Vendor fill rate and purchase price variance.
+    columns:
+      - name: vendor_fill_rate
+        tests: [not_null]
+  - name: kpi_finance
+    description: Gross margin %, DSO, DPO, cash conversion cycle, close cycle.
+    columns:
+      - name: gross_margin_pct
+        tests: [not_null]
+      - name: ccc_days
+        tests: [not_null]
+  - name: kpi_growth
+    description: Same-branch share and organic vs acquired revenue mix.
+    columns:
+      - name: acquired_revenue_pct
+        tests: [not_null]
+  - name: kpi_productivity
+    description: Sales per FTE, average ticket, order tempo.
+    columns:
+      - name: avg_ticket
+        tests: [not_null]
+  - name: kpi_headline
+    description: Single-row headline summary for the demo/BI surface.
+    columns:
+      - name: gmroi
+        tests: [not_null]

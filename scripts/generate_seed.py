@@ -34,6 +34,15 @@ SCHEMA_VERSION = "1.0.0"
 
 rng = random.Random(42)
 
+# Calibrated so the seeded books reconcile to plausible dealer economics:
+# ~$12M annualized revenue across 39 FTE (~$320k/FTE), 4-6 inventory turns,
+# DSO ~50, DPO ~40. Transaction quantities draw at LINE_QTY_SCALE x the
+# catalog's per-line share of weekly demand; month-end stock scales with
+# STOCK_WEEKS_SCALE; GL opening balances derive from the books (see
+# generate_gl_entries) instead of independent magnitudes.
+LINE_QTY_SCALE = 200
+STOCK_SCALE = 15
+
 # ---------------------------------------------------------------------------
 # Master data
 # ---------------------------------------------------------------------------
@@ -251,9 +260,9 @@ def generate_sales_order_lines() -> list[list]:
             for line_no in range(1, n_lines + 1):
                 item_no, _d, _c, _s, uom, cost, price, demand = rng.choice(ITEMS)
                 scale = BRANCH_WEIGHT[branch] * month_f
-                qty = max(1, round(demand / 40 * scale * rng.uniform(0.5, 2.2)))
+                qty = max(1, round(demand / 40 * scale * rng.uniform(0.5, 2.2) * LINE_QTY_SCALE))
                 if item_no.startswith(("DW", "SX", "RF-4011", "FS-2011")):
-                    qty = max(1, round(qty / 10))
+                    qty = max(1, round(qty / 10 * 8))  # big-ticket items: temper the scale
                 if status == "CANCELLED":
                     filled, cancelled = 0, qty
                 elif status == "PARTIAL":
@@ -326,7 +335,9 @@ def generate_purchase_order_lines() -> list[list]:
                 chosen = rng.sample(items_for_vendor, n_lines)
                 for line_no, item in enumerate(chosen, start=1):
                     item_no, _d, _c, _s, uom, cost, _p, demand = item
-                    ordered = max(5, round(demand / 10 * BRANCH_WEIGHT[branch] * rng.uniform(0.8, 1.6)))
+                    ordered = max(
+                        5, round(demand / 10 * BRANCH_WEIGHT[branch] * rng.uniform(0.8, 1.6) * LINE_QTY_SCALE)
+                    )
                     received, received_date = 0, None
                     if day <= date(2026, 8, 14):
                         r = rng.random()
@@ -355,7 +366,7 @@ def generate_inventory_snapshots() -> list[list]:
             month_f = SEASON_FACTOR[snap.month] if snap.month <= 8 else 1.0
             for item_no, _d, cat, _s, _u, cost, _p, demand in ITEMS:
                 weeks = WEEKS_OF_SUPPLY[cat]
-                base_stock = demand / 4.33 * weeks * weight * month_f  # demand is monthly-ish scale
+                base_stock = demand / 4.33 * weeks * weight * month_f * STOCK_SCALE
                 on_hand = max(0, round(base_stock * rng.uniform(0.55, 1.5)))
                 allocated = round(on_hand * rng.uniform(0.0, 0.25)) if rng.random() < 0.5 else 0
                 on_order = round(base_stock * rng.uniform(0.1, 0.6)) if rng.random() < 0.4 else 0
@@ -385,8 +396,18 @@ GL_ACCOUNTS = [
 ]
 
 
-def generate_gl_entries(invoice_lines: list[list], po_lines: list[list]) -> list[list]:
-    """Monthly journal lines per branch: revenue, COGS, collections, purchases, opex."""
+def generate_gl_entries(
+    invoice_lines: list[list], po_lines: list[list], inventory_snapshots: list[list]
+) -> list[list]:
+    """Monthly journal lines per branch: revenue, COGS, collections, purchases, opex.
+
+    Opening balances DERIVE FROM THE BOOKS (annualized revenue run-rate,
+    measured stock position) so balance-sheet KPIs (DSO/DPO/turns) reconcile
+    to the transactional volume instead of floating on independent magnitudes.
+    Book-derived amounts are already branch-filtered and must NOT be scaled by
+    branch weight again; weight allocation applies only to group-level opex
+    constants.
+    """
     rows: list[list] = []
     journal_seq = 1
 
@@ -397,15 +418,42 @@ def generate_gl_entries(invoice_lines: list[list], po_lines: list[list]) -> list
         for line_no, line in enumerate(lines, start=1):
             rows.append([journal_no, line_no, *line])
 
-    # Opening balances Jan 1 per branch
+    # ---- book-derived planning figures -------------------------------------
+    invoice_dates = [date.fromisoformat(r[2]) for r in invoice_lines]
+    window_days = (max(invoice_dates) - min(invoice_dates)).days + 1
+    window_revenue = sum(
+        float(r[9]) * float(r[8]) + float(r[11]) + float(r[12]) for r in invoice_lines
+    )
+    annual_revenue = window_revenue * 365.0 / window_days
+    # Branch revenue shares from the actual book
+    branch_revenue: dict[str, float] = {}
+    for r in invoice_lines:
+        branch_revenue[r[5]] = branch_revenue.get(r[5], 0.0) + float(r[9]) * float(r[8])
+    revenue_share = {b: v / max(window_revenue, 1.0) for b, v in branch_revenue.items()}
+    # Measured stock position (latest snapshot per branch) anchors opening inventory
+    snapshot_dates = sorted({r[0] for r in inventory_snapshots})
+    latest_snap = snapshot_dates[0]  # April 30 = first measured position
+    branch_stock: dict[str, float] = {}
+    for r in inventory_snapshots:
+        if r[0] == latest_snap:
+            branch_stock[r[1]] = branch_stock.get(r[1], 0.0) + float(r[8])  # inventory_value
+
+    # Opening balances Jan 1 per branch: AR ~25 days of the branch's revenue
+    # run-rate, inventory from the measured stock position, AP light, cash and
+    # equity plug to balance.
     for branch, weight in BRANCH_WEIGHT.items():
-        s = 1000 * weight
+        share = revenue_share.get(branch, weight)  # fall back to weight for pre-acquisition
+        opening_ar = round(annual_revenue * 25 / 365 * share, 2)
+        opening_inventory = round(branch_stock.get(branch, 0.0), 2)
+        opening_ap = round(annual_revenue * 8 / 365 * share, 2)
+        assets = 420000 * weight + opening_ar + opening_inventory
+        opening_equity = round(assets - opening_ap, 2)
         journal([
-            [date(2026, 1, 1), branch, "1010", "Opening balance", round(180 * s, 2), 0],
-            [date(2026, 1, 1), branch, "1100", "Opening balance", round(240 * s, 2), 0],
-            [date(2026, 1, 1), branch, "1200", "Opening balance", round(430 * s, 2), 0],
-            [date(2026, 1, 1), branch, "2000", "Opening balance", 0, round(210 * s, 2)],
-            [date(2026, 1, 1), branch, "3900", "Opening balance", 0, round(640 * s, 2)],
+            [date(2026, 1, 1), branch, "1010", "Opening balance", round(420000 * weight, 2), 0],
+            [date(2026, 1, 1), branch, "1100", "Opening balance", opening_ar, 0],
+            [date(2026, 1, 1), branch, "1200", "Opening balance", opening_inventory, 0],
+            [date(2026, 1, 1), branch, "2000", "Opening balance", 0, opening_ap],
+            [date(2026, 1, 1), branch, "3900", "Opening balance", 0, opening_equity],
         ])
 
     months = [(1, 31), (2, 28), (3, 31), (4, 30), (5, 31), (6, 30), (7, 31), (8, 31)]
@@ -417,39 +465,41 @@ def generate_gl_entries(invoice_lines: list[list], po_lines: list[list]) -> list
             cogs = sum(float(r[10]) * float(r[8]) for r in branch_invoices)
             branch_pos = [r for r in po_lines if r[4] == branch and r[2].startswith(f"2026-{month:02d}")]
             purchases = sum(float(r[9]) * float(r[7]) for r in branch_pos if r[8] > 0)
-            collections = round(sales * 0.85, 2)
+            collections = round(sales * 0.97, 2)
             payments = round(purchases * 0.90, 2)
 
             def scale(v: float) -> float:
+                """Allocate a GROUP-LEVEL constant to a branch by weight."""
                 return round(v * weight, 2)
 
+            # Book-derived amounts are branch-actual: no weight scaling here.
             journal([
-                [month_end, branch, "1100", f"Sales accrual {month_end:%B}", scale(sales), 0],
-                [month_end, branch, "4000", f"Sales accrual {month_end:%B}", 0, scale(sales * 0.985)],
-                [month_end, branch, "4010", f"Freight recovered {month_end:%B}", 0, scale(sales * 0.015)],
-                [month_end, branch, "5000", f"COGS {month_end:%B}", scale(cogs), 0],
-                [month_end, branch, "1200", f"COGS relief {month_end:%B}", 0, scale(cogs)],
-                [month_end, branch, "1010", f"Customer collections {month_end:%B}", scale(collections), 0],
-                [month_end, branch, "1100", f"Customer collections {month_end:%B}", 0, scale(collections)],
-                [month_end, branch, "1200", f"Inventory receipts {month_end:%B}", scale(purchases), 0],
-                [month_end, branch, "2000", f"Inventory receipts {month_end:%B}", 0, scale(purchases)],
-                [month_end, branch, "2000", f"Vendor payments {month_end:%B}", scale(payments), 0],
-                [month_end, branch, "1010", f"Vendor payments {month_end:%B}", 0, scale(payments)],
-                [month_end, branch, "6100", f"Payroll {month_end:%B}", scale(52000), 0],
-                [month_end, branch, "1010", f"Payroll {month_end:%B}", 0, scale(52000)],
-                [month_end, branch, "6200", f"Rent {month_end:%B}", scale(9500), 0],
-                [month_end, branch, "1010", f"Rent {month_end:%B}", 0, scale(9500)],
-                [month_end, branch, "6300", f"Utilities {month_end:%B}", scale(3800), 0],
-                [month_end, branch, "1010", f"Utilities {month_end:%B}", 0, scale(3800)],
-                [month_end, branch, "6500", f"Supplies {month_end:%B}", scale(2100), 0],
-                [month_end, branch, "1010", f"Supplies {month_end:%B}", 0, scale(2100)],
+                [month_end, branch, "1100", f"Sales accrual {month_end:%B}", round(sales, 2), 0],
+                [month_end, branch, "4000", f"Sales accrual {month_end:%B}", 0, round(sales * 0.985, 2)],
+                [month_end, branch, "4010", f"Freight recovered {month_end:%B}", 0, round(sales * 0.015, 2)],
+                [month_end, branch, "5000", f"COGS {month_end:%B}", round(cogs, 2), 0],
+                [month_end, branch, "1200", f"COGS relief {month_end:%B}", 0, round(cogs, 2)],
+                [month_end, branch, "1010", f"Customer collections {month_end:%B}", collections, 0],
+                [month_end, branch, "1100", f"Customer collections {month_end:%B}", 0, collections],
+                [month_end, branch, "1200", f"Inventory receipts {month_end:%B}", round(purchases, 2), 0],
+                [month_end, branch, "2000", f"Inventory receipts {month_end:%B}", 0, round(purchases, 2)],
+                [month_end, branch, "2000", f"Vendor payments {month_end:%B}", payments, 0],
+                [month_end, branch, "1010", f"Vendor payments {month_end:%B}", 0, payments],
+                [month_end, branch, "6100", f"Payroll {month_end:%B}", scale(130000), 0],
+                [month_end, branch, "1010", f"Payroll {month_end:%B}", 0, scale(130000)],
+                [month_end, branch, "6200", f"Rent {month_end:%B}", scale(26000), 0],
+                [month_end, branch, "1010", f"Rent {month_end:%B}", 0, scale(26000)],
+                [month_end, branch, "6300", f"Utilities {month_end:%B}", scale(7200), 0],
+                [month_end, branch, "1010", f"Utilities {month_end:%B}", 0, scale(7200)],
+                [month_end, branch, "6500", f"Supplies {month_end:%B}", scale(4200), 0],
+                [month_end, branch, "1010", f"Supplies {month_end:%B}", 0, scale(4200)],
                 [month_end, branch, "6900", f"Distributions {month_end:%B}", scale(30000), 0],
                 [month_end, branch, "1010", f"Distributions {month_end:%B}", 0, scale(30000)],
             ])
             if month in (3, 6):
                 journal([
-                    [month_end, branch, "6400", f"Insurance premium {month_end:%B}", scale(7400), 0],
-                    [month_end, branch, "1010", f"Insurance premium {month_end:%B}", 0, scale(7400)],
+                    [month_end, branch, "6400", f"Insurance premium {month_end:%B}", scale(14500), 0],
+                    [month_end, branch, "1010", f"Insurance premium {month_end:%B}", 0, scale(14500)],
                 ])
     return rows
 
@@ -540,7 +590,7 @@ def main() -> None:
     invoice_lines = generate_invoice_lines(order_lines)
     po_lines = generate_purchase_order_lines()
     snapshots = generate_inventory_snapshots()
-    gl_entries = generate_gl_entries(invoice_lines, po_lines)
+    gl_entries = generate_gl_entries(invoice_lines, po_lines, snapshots)
 
     write_csv(DEALER_DIR / "items.csv",
               ["item_no", "description", "category", "subcategory", "uom", "unit_cost", "list_price", "item_status"], items)

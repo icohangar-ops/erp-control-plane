@@ -1,0 +1,21 @@
+version: 2
+
+sources:
+  - name: csvsftp_ridgeline
+    description: >
+      Ridgeline Lumber & Supply dealer-export staging. Rows land as Parquet
+      written by the csv_sftp connector; dbt reads them in place via
+      external locations. Every row carries connector provenance stamps
+      (source_system, source_id, source_file, batch_id, loaded_at).
+    meta:
+      external_location: "read_parquet('data/lake/parquet/csvsftp_ridgeline/{name}.parquet')"
+    tables:
+      - name: items
+      - name: salespeople
+      - name: customers
+      - name: vendors
+      - name: sales_order_lines
+      - name: purchase_order_lines
+      - name: invoice_lines
+      - name: inventory_snapshots
+      - name: gl_entries
