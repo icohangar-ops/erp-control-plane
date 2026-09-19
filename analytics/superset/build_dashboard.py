@@ -34,6 +34,7 @@ Environment overrides:
     DEALER_DUCKDB         default /home/user/superset-bi/dealer.duckdb
     SUPERSET_META_DB      default /home/user/superset-bi/superset-meta.db
 """
+
 import json
 import os
 import sqlite3
@@ -218,7 +219,12 @@ def ensure_dataset(table_name, sql=None, schema=None):
 
 # ---------------------------------------------------------------- charts
 def simple(col, agg, label):
-    return {"expressionType": "SIMPLE", "column": {"column_name": col}, "aggregate": agg, "label": label}
+    return {
+        "expressionType": "SIMPLE",
+        "column": {"column_name": col},
+        "aggregate": agg,
+        "label": label,
+    }
 
 
 def sql_expr(expr, label):
@@ -267,25 +273,97 @@ def bar_params(ds_id, x_col, metric, fmt="SMART_NUMBER", limit=50):
 
 
 CHARTS = [
-    ("GMROI", "big_number_total", "kpi_headline", tile_params(0, simple("gmroi", "AVG", "GMROI"), ".2f")),
-    ("Inventory turns", "big_number_total", "kpi_headline", tile_params(0, simple("inventory_turns", "AVG", "Inventory turns"), ".2f")),
-    ("Gross margin %", "big_number_total", "kpi_headline", tile_params(0, simple("gross_margin_pct", "AVG", "Gross margin %"), ".1f")),
-    ("Line fill rate %", "big_number_total", "kpi_headline", tile_params(0, simple("line_fill_rate", "AVG", "Line fill rate %"), ".1f")),
-    ("Monthly invoiced revenue", "echarts_timeseries_line", "fact_invoice_line",
-     line_params(0, "invoice_date", simple("revenue_amount", "SUM", "Revenue"))),
-    ("Revenue by branch", "echarts_timeseries_bar", "invoice_branch",
-     bar_params(0, "branch_name", simple("revenue_amount", "SUM", "Revenue"))),
-    ("Gross margin % by category", "echarts_timeseries_bar", "invoice_cat",
-     bar_params(0, "category", sql_expr("SUM(gross_margin_amount) / NULLIF(SUM(revenue_amount), 0) * 100", "Gross margin %"), ".1f")),
-    ("Inventory value by category", "echarts_timeseries_bar", "inventory_cat",
-     bar_params(0, "category", simple("inventory_value", "SUM", "Inventory value"))),
-    ("Open-order fill % by branch", "echarts_timeseries_bar", "so_branch",
-     bar_params(0, "branch_name", sql_expr("SUM(filled_qty) / NULLIF(SUM(ordered_qty), 0) * 100", "Fill %"), ".1f")),
-    ("Vendor fill rate %", "echarts_timeseries_bar", "po_vendor",
-     bar_params(0, "vendor_name", sql_expr("SUM(received_qty) / NULLIF(SUM(ordered_qty), 0) * 100", "Vendor fill %"), ".1f", limit=8)),
-    ("All headline KPIs", "table", "kpi_long",
-     {"datasource": "0__table", "viz_type": "table", "query_mode": "raw",
-      "all_columns": ["kpi", "value"], "time_range": "No filter", "row_limit": 100}),
+    (
+        "GMROI",
+        "big_number_total",
+        "kpi_headline",
+        tile_params(0, simple("gmroi", "AVG", "GMROI"), ".2f"),
+    ),
+    (
+        "Inventory turns",
+        "big_number_total",
+        "kpi_headline",
+        tile_params(0, simple("inventory_turns", "AVG", "Inventory turns"), ".2f"),
+    ),
+    (
+        "Gross margin %",
+        "big_number_total",
+        "kpi_headline",
+        tile_params(0, simple("gross_margin_pct", "AVG", "Gross margin %"), ".1f"),
+    ),
+    (
+        "Line fill rate %",
+        "big_number_total",
+        "kpi_headline",
+        tile_params(0, simple("line_fill_rate", "AVG", "Line fill rate %"), ".1f"),
+    ),
+    (
+        "Monthly invoiced revenue",
+        "echarts_timeseries_line",
+        "fact_invoice_line",
+        line_params(0, "invoice_date", simple("revenue_amount", "SUM", "Revenue")),
+    ),
+    (
+        "Revenue by branch",
+        "echarts_timeseries_bar",
+        "invoice_branch",
+        bar_params(0, "branch_name", simple("revenue_amount", "SUM", "Revenue")),
+    ),
+    (
+        "Gross margin % by category",
+        "echarts_timeseries_bar",
+        "invoice_cat",
+        bar_params(
+            0,
+            "category",
+            sql_expr(
+                "SUM(gross_margin_amount) / NULLIF(SUM(revenue_amount), 0) * 100", "Gross margin %"
+            ),
+            ".1f",
+        ),
+    ),
+    (
+        "Inventory value by category",
+        "echarts_timeseries_bar",
+        "inventory_cat",
+        bar_params(0, "category", simple("inventory_value", "SUM", "Inventory value")),
+    ),
+    (
+        "Open-order fill % by branch",
+        "echarts_timeseries_bar",
+        "so_branch",
+        bar_params(
+            0,
+            "branch_name",
+            sql_expr("SUM(filled_qty) / NULLIF(SUM(ordered_qty), 0) * 100", "Fill %"),
+            ".1f",
+        ),
+    ),
+    (
+        "Vendor fill rate %",
+        "echarts_timeseries_bar",
+        "po_vendor",
+        bar_params(
+            0,
+            "vendor_name",
+            sql_expr("SUM(received_qty) / NULLIF(SUM(ordered_qty), 0) * 100", "Vendor fill %"),
+            ".1f",
+            limit=8,
+        ),
+    ),
+    (
+        "All headline KPIs",
+        "table",
+        "kpi_long",
+        {
+            "datasource": "0__table",
+            "viz_type": "table",
+            "query_mode": "raw",
+            "all_columns": ["kpi", "value"],
+            "time_range": "No filter",
+            "row_limit": 100,
+        },
+    ),
 ]
 
 
@@ -340,7 +418,10 @@ def build_layout(ids, uuids):
         }
 
     rows = [
-        ("ROW-1", [("GMROI", 3), ("Inventory turns", 3), ("Gross margin %", 3), ("Line fill rate %", 3)]),
+        (
+            "ROW-1",
+            [("GMROI", 3), ("Inventory turns", 3), ("Gross margin %", 3), ("Line fill rate %", 3)],
+        ),
         ("ROW-2", [("Monthly invoiced revenue", 7), ("Revenue by branch", 5)]),
         ("ROW-3", [("Gross margin % by category", 6), ("Inventory value by category", 6)]),
         ("ROW-4", [("Open-order fill % by branch", 6), ("Vendor fill rate %", 6)]),
@@ -416,9 +497,15 @@ def ensure_dashboard(ids):
         api("PUT", f"/api/v1/dashboard/{dash_id}", json=layout_payload)
         print(f"dashboard updated id={dash_id}")
     else:
-        res = api("POST", "/api/v1/dashboard/", json={
-            "dashboard_title": DASH_TITLE, "slug": DASH_SLUG, "published": True,
-        })
+        res = api(
+            "POST",
+            "/api/v1/dashboard/",
+            json={
+                "dashboard_title": DASH_TITLE,
+                "slug": DASH_SLUG,
+                "published": True,
+            },
+        )
         dash_id = res["id"]
         api("PUT", f"/api/v1/dashboard/{dash_id}", json=layout_payload)
         print(f"dashboard created id={dash_id}")
@@ -445,18 +532,24 @@ def verify_charts(ids, ds_map):
             if "granularity_sqla" in params:
                 query["granularity"] = params["granularity_sqla"]
                 query["time_grain"] = params.get("time_grain_sqla", "P1D")
-        res = api("POST", "/api/v1/chart/data", json={
-            "datasource": {"id": ds_id, "type": "table"},
-            "queries": [query],
-            "result_format": "json",
-            "result_type": "full",
-        })
+        res = api(
+            "POST",
+            "/api/v1/chart/data",
+            json={
+                "datasource": {"id": ds_id, "type": "table"},
+                "queries": [query],
+                "result_format": "json",
+                "result_type": "full",
+            },
+        )
         status = res["result"][0].get("status")
         rows = res["result"][0].get("data") or []
         ok = status == "success" and rows
         failures += 0 if ok else 1
         sample = json.dumps(rows[0])[:120] if rows else "NO ROWS"
-        print(f"{'OK  ' if ok else 'FAIL'} chart '{name}' status={status} rows={len(rows)} sample={sample}")
+        print(
+            f"{'OK  ' if ok else 'FAIL'} chart '{name}' status={status} rows={len(rows)} sample={sample}"
+        )
     if failures:
         sys.exit(f"{failures} chart queries failed")
 
@@ -465,14 +558,21 @@ def main():
     global HEADERS, DB_ID
     HEADERS = login()
     DB_ID = ensure_database()
-    ds_map = {"kpi_headline": ensure_dataset("kpi_headline", schema="main_marts"),
-              "fact_invoice_line": ensure_dataset("fact_invoice_line", schema="main_canonical")}
+    ds_map = {
+        "kpi_headline": ensure_dataset("kpi_headline", schema="main_marts"),
+        "fact_invoice_line": ensure_dataset("fact_invoice_line", schema="main_canonical"),
+    }
     for name, sql in VIRTUAL_DATASETS.items():
         ds_map[name] = ensure_dataset(name, sql=sql)
     ids = ensure_charts(ds_map)
     dash_id = ensure_dashboard(ids)
     verify_charts(ids, ds_map)
-    print(json.dumps({"dashboard_id": dash_id, "dashboard_url": f"{BASE}/superset/dashboard/{DASH_SLUG}/"}, indent=2))
+    print(
+        json.dumps(
+            {"dashboard_id": dash_id, "dashboard_url": f"{BASE}/superset/dashboard/{DASH_SLUG}/"},
+            indent=2,
+        )
+    )
 
 
 if __name__ == "__main__":
