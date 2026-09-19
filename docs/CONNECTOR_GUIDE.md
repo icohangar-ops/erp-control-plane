@@ -129,6 +129,42 @@ OData v4 with explicit `$top`/`$skip` (P21 emits no continuation links, so
 `$filter`, and watermarks on `date_last_modified`. Both feed the same
 anti-join reconciliation as the SQL pack.
 
+## SAP HANA (SAP Business One on HANA)
+
+`connectors/legacy/sap_hana/` joins the shared `DbApiBatchConnector` batch
+path (`connectors/legacy/sql_source.py`) as the 15-class matrix's HANA row.
+The connection is a raw SQLAlchemy `hana://` engine connection — the
+`sqlalchemy-hana` dialect with the `hdbcli` client — built lazily so the
+dependency is a site-provided optional extra, exactly like pyodbc for
+OpenEdge; tests inject `connection_factory=` fixtures instead. All nine
+canonical entities read DBA-maintained `b1_*` staging views exposed to a
+dedicated READ-ONLY extraction user (never the B1ADMIN/owner account). The
+optional `db_schema` setting is identifier-validated and qualifies every SQL
+path — SELECT, key scan, dry-run plan (`B1SCHEMA.b1_items`). Instance ports
+follow the SAP convention 3NN15: instance 90 listens on 39015 (the template
+default). Batch-only per spec §6: no CDC path is verified, so deletes
+reconcile via the scheduled full-key anti-join. UNEXERCISED against live
+HANA — validate staging-view columns and watermarks at onboarding.
+
+## Cloud ERP REST (Plex, Dynamics 365)
+
+`connectors/cloud_erp_rest/` is one connector class behind per-tenant
+provider profiles (`provider: plex|d365`), following the dlt rest_api
+verified-source approach. Auth resolves per tenant: an API-key header (Plex
+default `X-API-Key`) or OAuth2 client credentials (Dynamics 365 via Microsoft
+Entra ID — the token URL derives from the AAD `tenant_id`). Pagination is
+explicit per profile: `page`/`pageSize` page-number paging for Plex-style
+surfaces (a short page ends the scan) and `@odata.nextLink` continuation for
+OData. Incremental reads filter server-side on a modified-timestamp field
+(settings-overridable) and 429/503 responses back off honoring `Retry-After`
+with bounded retries. These APIs expose no delete feeds: the scheduled
+full-key anti-join reconciles deletes, using `$select`-style key-only scans
+where the profile declares them. Resource paths and field maps are
+canonical-shaped defaults — validate them against the tenant's API metadata
+at onboarding. UNEXERCISED against live tenants; fixture tests
+(`tests/test_cloud_erp_rest.py`) prove paging, auth, watermarks, and
+reconciliation against MockTransport recordings.
+
 ## Warehouse direct-connect configs (spec §5 last row)
 
 Snowflake, BigQuery, ClickHouse, Trino, and Databricks are connection configs
