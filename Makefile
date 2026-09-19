@@ -1,13 +1,16 @@
 # =============================================================================
 # construction-supplies-erp-control-plane — developer & deployment entry points
 # =============================================================================
-.PHONY: help demo up up-bi down dbt-build dbt-test test lint typecheck ci clean
+.PHONY: help demo api up up-bi down dbt-build dbt-test test lint typecheck ci clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
 
 demo: ## Run the seeded CSV dealer end-to-end: extract -> Parquet -> dbt build -> KPI report
 	python demo/run_demo.py
+
+api: ## Run the demo KPI API locally (uvicorn on :8000)
+	uvicorn api.index:app --host 0.0.0.0 --port 8000
 
 up: ## Start postgres + dagster (docker compose)
 	docker compose up -d
@@ -34,7 +37,7 @@ lint: ## Ruff lint + format check
 	ruff format --check .
 
 typecheck: ## Byte-compile every module (basic import sanity)
-	python -m compileall -q connectors control_plane orchestration demo scripts
+	python -m compileall -q connectors control_plane orchestration demo scripts api
 
 ci: lint typecheck test ## Everything CI runs locally
 

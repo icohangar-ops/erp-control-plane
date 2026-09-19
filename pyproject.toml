@@ -9,6 +9,7 @@ authors = [{ name = "Cubiczan Engineering" }]
 
 dependencies = [
     "duckdb==1.5.5",
+    "fastapi==0.141.1",
     "pyarrow==25.0.1",
     "PyYAML==6.0.3",
     "httpx==0.28.1",
@@ -29,6 +30,7 @@ transform = [
 ]
 dev = [
     "pytest==9.0.3",
+    "uvicorn==0.52.3",
     "ruff==0.16.8",
     "dbt-core==1.12.5",
     "dbt-duckdb==1.11.0",
@@ -59,3 +61,7 @@ ignore = ["E501"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.vercel]
+# Vercel Python runtime entrypoint (module:variable) for the demo KPI API in api/.
+entrypoint = "api.index:app"

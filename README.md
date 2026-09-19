@@ -98,3 +98,27 @@ KPI sign-off → scheduled increments.
   `source_doc_no`/`source_line_no` on facts, `loaded_at`) for audit trails.
 - Superset deployments must configure RLS per dealer/branch
   (`analytics/README.md`).
+
+## Demo API (serverless-ready)
+
+`api/index.py` is a lean FastAPI + DuckDB API over the seeded dealer data — the
+Vercel-deployable entrypoint for this repo (wired via `[tool.vercel] entrypoint`
+in `pyproject.toml`; serverless deps in `requirements.txt`). The heavy pipeline
+(Dagster, dbt, Superset, Postgres) is not deployed serverless — use Docker
+Compose for the full topology.
+
+- `GET /` — service info
+- `GET /health` — liveness + data provenance
+- `GET /data/summary` — per-domain row counts, date spans, headcount
+- `GET /kpis` — the full 21-metric headline KPI set
+
+KPIs are computed with the same definitions as the dbt marts
+(`dbt/models/marts/`) and pinned to the dbt-built `main_marts.kpi_headline`
+values by `tests/test_kpi_api.py`.
+
+Local run:
+
+```bash
+pip install -e ".[dev]"
+make api   # uvicorn api.index:app on :8000
+```
