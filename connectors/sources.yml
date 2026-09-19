@@ -75,8 +75,10 @@ sources:
   - source_id: epicor_p21_template
     erp: epicor_p21
     description: >
-      Epicor Prophet 21 — SQL Server views or OData API; skeleton pending
-      customer deployment architecture (on-prem vs cloud).
+      Epicor Prophet 21 — OData v4 Data Services (cloud) with explicit $top
+      paging and watermark on date_last_modified. Coded to the documented
+      surface; UNEXERCISED pending tenant $metadata validation. On-prem sites
+      should use the SQL Server connector against a read-only replica.
     enabled: false
     settings:
       mode: ${P21_MODE:-sql}
@@ -112,8 +114,9 @@ sources:
   - source_id: d365_bc_template
     erp: d365_bc
     description: >
-      Dynamics 365 Business Central — API v2 (OAuth2) with BACPAC backfill
-      for history; skeleton pending Entra app registration on the tenant.
+      Dynamics 365 Business Central — API v2.0/OData v4 with $top + continuation
+      paging, Data-Access-Intent: ReadOnly, and HTTP 429 backoff. Coded to the
+      documented surface; UNEXERCISED pending Entra app registration.
     enabled: false
     settings:
       tenant_id: ${D365BC_TENANT_ID:-}
@@ -122,3 +125,132 @@ sources:
       environment: ${D365BC_ENVIRONMENT:-}
       company_id: ${D365BC_COMPANY_ID:-}
       api_version: ${D365BC_API_VERSION:-v2.0}
+
+  # ------------------------------------------------------------------
+  # Legacy database connector pack (spec §5 rows 1–9). Every class shares the
+  # DB-API batch extraction path with anti-join delete reconciliation; CDC is
+  # documented per connector (connectors/legacy/*/cdc.py) but not CI-required.
+  # Fixture-tested in CI; enable per site after driver/credential discovery.
+  # ------------------------------------------------------------------
+  - source_id: informix_template
+    erp: informix
+    description: >
+      IBM Informix — ODBC batch via watermark (Informix Client SDK driver);
+      optional Debezium change-streams CDC module documented, not CI-required.
+    enabled: false
+    settings:
+      odbc_dsn: ${INFORMIX_ODBC_DSN:-}
+      db_user: ${INFORMIX_DB_USER:-}
+      db_password: ${INFORMIX_DB_PASSWORD:-}
+
+  - source_id: db2_luw_template
+    erp: db2_luw
+    description: >
+      IBM Db2 LUW — ODBC batch via watermark (Db2 ODBC/CLI driver). CDC is
+      gated on the IIDR license (inventory C1) — batch needs no license.
+    enabled: false
+    settings:
+      odbc_dsn: ${DB2_LUW_ODBC_DSN:-}
+      db_user: ${DB2_LUW_DB_USER:-}
+      db_password: ${DB2_LUW_DB_PASSWORD:-}
+
+  - source_id: db2_iseries_template
+    erp: db2_iseries
+    description: >
+      Db2 for i — JT400 JDBC batch via the JayDeBeApi bridge (default path;
+      inventory C3). Debezium connector is incubating: any attempt must pin a
+      Final artifact.
+    enabled: false
+    settings:
+      jdbc_url: ${DB2I_JDBC_URL:-}
+      db_user: ${DB2I_DB_USER:-}
+      db_password: ${DB2I_DB_PASSWORD:-}
+      jt400_jars: ${DB2I_JT400_JARS:-}
+
+  - source_id: oracle_template
+    erp: oracle
+    description: >
+      Oracle — ODBC batch via watermark (Oracle ODBC driver). LogMiner CDC
+      needs no extra license; XStream requires GoldenGate (see cdc module).
+    enabled: false
+    settings:
+      odbc_dsn: ${ORACLE_ODBC_DSN:-}
+      db_user: ${ORACLE_DB_USER:-}
+      db_password: ${ORACLE_DB_PASSWORD:-}
+
+  - source_id: sqlserver_template
+    erp: sqlserver
+    description: >
+      SQL Server — native CDC change tables plus ODBC batch (MS ODBC Driver
+      18); batch with the anti-join is the CI-tested default.
+    enabled: false
+    settings:
+      odbc_dsn: ${SQLSERVER_ODBC_DSN:-}
+      db_user: ${SQLSERVER_DB_USER:-}
+      db_password: ${SQLSERVER_DB_PASSWORD:-}
+
+  - source_id: postgresql_template
+    erp: postgresql
+    description: >
+      PostgreSQL — DB-API (psycopg2) batch via watermark; Debezium logical
+      decoding (pgoutput, UTF-8) documented in the cdc module.
+    enabled: false
+    settings:
+      db_host: ${PG_DB_HOST:-}
+      db_port: ${PG_DB_PORT:-5432}
+      db_name: ${PG_DB_NAME:-}
+      db_user: ${PG_DB_USER:-}
+      db_password: ${PG_DB_PASSWORD:-}
+
+  - source_id: mysql_template
+    erp: mysql
+    description: >
+      MySQL — DB-API (PyMySQL) batch via watermark; stable Debezium binlog
+      connector documented. Connector/J GPLv2/UFE license note (inventory C5).
+    enabled: false
+    settings:
+      db_host: ${MYSQL_DB_HOST:-}
+      db_port: ${MYSQL_DB_PORT:-3306}
+      db_name: ${MYSQL_DB_NAME:-}
+      db_user: ${MYSQL_DB_USER:-}
+      db_password: ${MYSQL_DB_PASSWORD:-}
+
+  - source_id: mariadb_template
+    erp: mariadb
+    description: >
+      MariaDB — same pack as MySQL (non-incubating Debezium connector per C5);
+      no Connector/J license note applies to the PyMySQL batch path.
+    enabled: false
+    settings:
+      db_host: ${MARIADB_DB_HOST:-}
+      db_port: ${MARIADB_DB_PORT:-3306}
+      db_name: ${MARIADB_DB_NAME:-}
+      db_user: ${MARIADB_DB_USER:-}
+      db_password: ${MARIADB_DB_PASSWORD:-}
+
+  - source_id: sybase_ase_template
+    erp: sybase_ase
+    description: >
+      SAP Sybase ASE — jConnect JDBC batch only (no Debezium connector exists;
+      inventory C7). Set soft_delete_column/soft_delete_value when deletes are
+      soft-flagged; hard deletes reconcile via the anti-join.
+    enabled: false
+    settings:
+      jdbc_url: ${SYBASE_JDBC_URL:-}
+      db_user: ${SYBASE_DB_USER:-}
+      db_password: ${SYBASE_DB_PASSWORD:-}
+      jconnect_jars: ${SYBASE_JCONNECT_JARS:-}
+      soft_delete_column: ${SYBASE_SOFT_DELETE_COLUMN:-}
+      soft_delete_value: ${SYBASE_SOFT_DELETE_VALUE:-}
+
+  - source_id: openedge_template
+    erp: openedge
+    description: >
+      Progress OpenEdge — custom pyodbc/DataDirect ODBC dlt resource (no
+      SQLAlchemy dialect exists, inventory C2). Batch only; native OpenEdge
+      CDC / Pro2 is the site-licensed pilot option.
+    enabled: false
+    settings:
+      odbc_dsn: ${OPENEDGE_ODBC_DSN:-}
+      db_user: ${OPENEDGE_DB_USER:-}
+      db_password: ${OPENEDGE_DB_PASSWORD:-}

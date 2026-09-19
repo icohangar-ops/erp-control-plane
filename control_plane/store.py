@@ -21,9 +21,11 @@ from control_plane.config import POSTGRES_BACKEND, SQLITE_BACKEND, ControlPlaneC
 from control_plane.models import (
     FileAuditRecord,
     QuarantineRecord,
+    ReconciliationResult,
     SourceConfig,
     SourceRegistration,
     SyncCheckpoint,
+    TombstoneRecord,
 )
 
 # Portable DDL: valid on SQLite and Postgres alike.
@@ -87,6 +89,28 @@ DDL = [
         evaluated_at  TIMESTAMP NOT NULL
     )
     """,
+    """
+    CREATE TABLE IF NOT EXISTS reconciliation_runs (
+        run_id           TEXT PRIMARY KEY,
+        source_id        TEXT NOT NULL,
+        entity           TEXT NOT NULL,
+        delete_semantics TEXT NOT NULL,
+        source_keys      INTEGER NOT NULL,
+        warehouse_keys   INTEGER NOT NULL,
+        tombstoned       INTEGER NOT NULL,
+        ran_at           TIMESTAMP NOT NULL
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS tombstones (
+        tombstone_id  TEXT PRIMARY KEY,
+        source_id     TEXT NOT NULL,
+        entity        TEXT NOT NULL,
+        source_key    TEXT NOT NULL,
+        batch_id      TEXT,
+        tombstoned_at TIMESTAMP NOT NULL
+    )
+    """,
 ]
 
 
@@ -132,6 +156,16 @@ class ControlPlaneStore(ABC):
         self, source_id: str, entity: str, check_name: str, severity: str, status: str, detail: str
     ) -> None: ...
 
+    @abstractmethod
+    def record_reconciliation(self, result: ReconciliationResult, batch_id: str | None) -> None:
+        """Persist one anti-join run and its tombstones (spec §6 contract)."""
+
+    @abstractmethod
+    def list_tombstones(self, source_id: str, entity: str) -> list[TombstoneRecord]: ...
+
+    @abstractmethod
+    def list_reconciliation_runs(self, source_id: str) -> list[ReconciliationResult]: ...
+
     def close(self) -> None:  # optional on backends
         return None
 
@@ -148,6 +182,33 @@ def _registration_from(source: SourceConfig, fingerprint: str) -> SourceRegistra
 def _settings_from_json(raw: Any) -> dict[str, str]:
     parsed = json.loads(raw) if isinstance(raw, str) else (raw or {})
     return {str(k): str(v) for k, v in parsed.items()}
+
+
+def _tombstone_from_row(source_id: str, entity: str, key: str, batch_id, at) -> TombstoneRecord:
+    """Build a TombstoneRecord from either backend's row shape.
+
+    ``at`` is an ISO string (SQLite) or a datetime (Postgres).
+    """
+    stamp = at if isinstance(at, datetime) else datetime.fromisoformat(str(at))
+    return TombstoneRecord(
+        source_id=source_id, entity=entity, source_key=key, batch_id=batch_id, tombstoned_at=stamp
+    )
+
+
+def _run_from_row(
+    source_id: str, entity: str, semantics: str, source_keys: int, warehouse_keys: int, ran_at
+) -> ReconciliationResult:
+    """Rebuild a run row (counts only — per-key detail lives in tombstones)."""
+    stamp = ran_at if isinstance(ran_at, datetime) else datetime.fromisoformat(str(ran_at))
+    return ReconciliationResult(
+        source_id=source_id,
+        entity=entity,
+        delete_semantics=semantics,
+        source_key_count=int(source_keys),
+        warehouse_key_count=int(warehouse_keys),
+        tombstoned_keys=(),
+        ran_at=stamp,
+    )
 
 
 class SqliteControlPlaneStore(ControlPlaneStore):
@@ -354,6 +415,67 @@ class SqliteControlPlaneStore(ControlPlaneStore):
                     _now().isoformat(),
                 ),
             )
+
+    def record_reconciliation(self, result: ReconciliationResult, batch_id: str | None) -> None:
+        with self._connection() as conn:
+            conn.execute(
+                """
+                INSERT INTO reconciliation_runs
+                    (run_id, source_id, entity, delete_semantics, source_keys,
+                     warehouse_keys, tombstoned, ran_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    result.source_id,
+                    result.entity,
+                    result.delete_semantics,
+                    result.source_key_count,
+                    result.warehouse_key_count,
+                    len(result.tombstoned_keys),
+                    result.ran_at.isoformat(),
+                ),
+            )
+            for key in result.tombstoned_keys:
+                conn.execute(
+                    """
+                    INSERT INTO tombstones
+                        (tombstone_id, source_id, entity, source_key, batch_id, tombstoned_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        result.source_id,
+                        result.entity,
+                        key,
+                        batch_id,
+                        result.ran_at.isoformat(),
+                    ),
+                )
+
+    def list_tombstones(self, source_id: str, entity: str) -> list[TombstoneRecord]:
+        rows = (
+            self._connection()
+            .execute(
+                "SELECT source_id, entity, source_key, batch_id, tombstoned_at "
+                "FROM tombstones WHERE source_id = ? AND entity = ? ORDER BY tombstoned_at",
+                (source_id, entity),
+            )
+            .fetchall()
+        )
+        return [_tombstone_from_row(r[0], r[1], r[2], r[3], r[4]) for r in rows]
+
+    def list_reconciliation_runs(self, source_id: str) -> list[ReconciliationResult]:
+        rows = (
+            self._connection()
+            .execute(
+                "SELECT source_id, entity, delete_semantics, source_keys, warehouse_keys, ran_at "
+                "FROM reconciliation_runs WHERE source_id = ? ORDER BY ran_at",
+                (source_id,),
+            )
+            .fetchall()
+        )
+        return [_run_from_row(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows]
 
     def close(self) -> None:
         if self._conn is not None:
@@ -569,6 +691,65 @@ class PostgresControlPlaneStore(ControlPlaneStore):
                 (uuid.uuid4().hex, source_id, entity, check_name, severity, status, detail, _now()),
             )
         conn.commit()
+
+    def record_reconciliation(self, result: ReconciliationResult, batch_id: str | None) -> None:
+        conn = self._connection()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                INSERT INTO reconciliation_runs
+                    (run_id, source_id, entity, delete_semantics, source_keys,
+                     warehouse_keys, tombstoned, ran_at)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    uuid.uuid4().hex,
+                    result.source_id,
+                    result.entity,
+                    result.delete_semantics,
+                    result.source_key_count,
+                    result.warehouse_key_count,
+                    len(result.tombstoned_keys),
+                    result.ran_at,
+                ),
+            )
+            for key in result.tombstoned_keys:
+                cur.execute(
+                    """
+                    INSERT INTO tombstones
+                        (tombstone_id, source_id, entity, source_key, batch_id, tombstoned_at)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        uuid.uuid4().hex,
+                        result.source_id,
+                        result.entity,
+                        key,
+                        batch_id,
+                        result.ran_at,
+                    ),
+                )
+        conn.commit()
+
+    def list_tombstones(self, source_id: str, entity: str) -> list[TombstoneRecord]:
+        with self._connection().cursor() as cur:
+            cur.execute(
+                "SELECT source_id, entity, source_key, batch_id, tombstoned_at "
+                "FROM tombstones WHERE source_id = %s AND entity = %s ORDER BY tombstoned_at",
+                (source_id, entity),
+            )
+            rows = cur.fetchall()
+        return [_tombstone_from_row(r[0], r[1], r[2], r[3], r[4]) for r in rows]
+
+    def list_reconciliation_runs(self, source_id: str) -> list[ReconciliationResult]:
+        with self._connection().cursor() as cur:
+            cur.execute(
+                "SELECT source_id, entity, delete_semantics, source_keys, warehouse_keys, ran_at "
+                "FROM reconciliation_runs WHERE source_id = %s ORDER BY ran_at",
+                (source_id,),
+            )
+            rows = cur.fetchall()
+        return [_run_from_row(r[0], r[1], r[2], r[3], r[4], r[5]) for r in rows]
 
     def close(self) -> None:
         if self._conn is not None:

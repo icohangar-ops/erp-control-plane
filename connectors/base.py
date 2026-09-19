@@ -39,7 +39,12 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 
 from control_plane.config import ControlPlaneConfig
-from control_plane.models import SourceConfig, SourceRegistration, SyncCheckpoint
+from control_plane.models import (
+    ReconciliationResult,
+    SourceConfig,
+    SourceRegistration,
+    SyncCheckpoint,
+)
 from control_plane.store import ControlPlaneStore
 
 #: Provenance columns stamped onto every staging record. Facts and dimensions
@@ -73,6 +78,22 @@ class ExtractionMode(StrEnum):
 class ConnectorMaturity(StrEnum):
     IMPLEMENTED = "implemented"
     SKELETON = "skeleton"
+
+
+class DeleteSemantics(StrEnum):
+    """How hard deletes from the source reach the warehouse (spec §6).
+
+    ANTI_JOIN — batch merge/upserts never see hard deletes; a scheduled
+    key-inventory anti-join (:meth:`BaseConnector.reconcile_deletes`) finds
+    warehouse keys the source no longer has and tombstones them. This is the
+    default and applies to every batch path — it is part of the connector
+    contract, not an optional extra.
+    CDC_NATIVE — the change stream carries delete events; the anti-join is
+    not applicable and ``reconcile_deletes`` refuses to run.
+    """
+
+    ANTI_JOIN = "anti_join"
+    CDC_NATIVE = "cdc_native"
 
 
 class ConnectorError(RuntimeError):
@@ -114,11 +135,30 @@ def config_fingerprint(settings: Mapping[str, str]) -> str:
     return sha256(canonical.encode("utf-8")).hexdigest()[:16]
 
 
+def natural_id_for(key_fields: tuple[str, ...], record: Mapping[str, object]) -> str:
+    """Canonical natural-key string for a record — ':'-joined key field values.
+
+    The single definition of a source's natural identity: provenance stamping
+    (``_stamp``) and key-inventory scans (``source_key_inventory``) must agree
+    on this form or the anti-join would compare incompatible id spaces.
+    """
+    return ":".join(str(record[field]) for field in key_fields)
+
+
 class BaseConnector(ABC):
     """Contract every source connector implements. See module docstring."""
 
     erp_id: ClassVar[str]
     maturity: ClassVar[ConnectorMaturity]
+    #: How hard deletes reach the warehouse (spec §6). Batch paths run the
+    #: anti-join contract method below; CDC paths carry delete events natively
+    #: and refuse the anti-join.
+    delete_handling: ClassVar[DeleteSemantics] = DeleteSemantics.ANTI_JOIN
+    #: True when an extraction is a full snapshot of the source entity (the
+    #: staged Parquet is replaced wholesale) — extract() then diffs the
+    #: previous snapshot's keys automatically at promotion time (spec §5's
+    #: "missing-key diff in newest snapshot = delete").
+    full_snapshot: ClassVar[bool] = False
     #: Research-backed extraction notes; required reading before implementation.
     extraction_notes: ClassVar[str] = ""
     #: entity -> columns forming the natural source key (used for source_id stamping).
@@ -175,7 +215,18 @@ class BaseConnector(ABC):
             )
         watermark_before = self.store.get_watermark(self.source.source_id, entity, mode.value)
         parquet_path = self._parquet_path(entity)
+        old_warehouse_keys = (
+            self.warehouse_key_inventory(entity)
+            if self.full_snapshot and mode is ExtractionMode.BACKFILL
+            else None
+        )
         rows = self._write_records_to_parquet(entity, parquet_path, mode, watermark_before)
+        if old_warehouse_keys is not None and rows > 0:
+            # A zero-row extract is never treated as "the source deleted
+            # everything" — for file sources that state is a quarantined empty
+            # drop, for SQL sources it is far more likely a fault than a mass
+            # delete.
+            self._reconcile_full_snapshot(entity, old_warehouse_keys, parquet_path)
         watermark_after = self.current_watermark(entity, mode, watermark_before)
         self.store.upsert_watermark(
             SyncCheckpoint(
@@ -201,6 +252,95 @@ class BaseConnector(ABC):
     ) -> str | None:
         """Watermark to persist after a successful extract. Default: unchanged."""
         return watermark_before
+
+    # ------------------------------------------------------------------
+    # Delete reconciliation (spec §6 cross-cutting rule)
+    # ------------------------------------------------------------------
+
+    def source_key_inventory(self, entity: str) -> set[str]:
+        """Natural keys the source holds for an entity, right now.
+
+        A cheap full-key scan of the source (key columns only, never whole
+        rows) in the canonical natural-id form. Batch connectors override
+        this; the default has no source surface to scan.
+        """
+        raise ConnectorNotImplemented(
+            f"connector '{self.erp_id}' does not implement a key-inventory scan for "
+            f"'{entity}'; the anti-join delete reconciliation needs one (spec §6)"
+        )
+
+    def warehouse_key_inventory(self, entity: str) -> set[str]:
+        """Natural keys currently staged in the warehouse for an entity."""
+        parquet_path = self._parquet_path(entity)
+        if not parquet_path.exists():
+            return set()
+        keys = pq.read_table(parquet_path, columns=["source_id"]).column("source_id").to_pylist()
+        return {str(key) for key in keys}
+
+    def reconcile_deletes(self, entity: str, batch_id: str | None = None) -> ReconciliationResult:
+        """Anti-join: warehouse keys absent from the source -> tombstones.
+
+        The scheduled job behind spec §6's cross-cutting rule — every batch
+        path reconciles deletes; it is part of the connector contract, not an
+        optional extra. Direction note: the tombstoned set is warehouse keys
+        the source no longer returns ("missing-key diff in newest snapshot =
+        delete", spec §5 file-source row); keys not yet extracted are simply
+        new, never tombstones.
+        """
+        if self.delete_handling is not DeleteSemantics.ANTI_JOIN:
+            raise ConnectorError(
+                f"connector '{self.erp_id}' carries deletes natively via change data "
+                f"capture; the anti-join reconciliation is not applicable for '{entity}'"
+            )
+        if entity not in self.entities():
+            raise ConnectorError(
+                f"entity '{entity}' is not exposed by {self.erp_id}; "
+                f"available: {', '.join(self.entities())}"
+            )
+        source_keys = self.source_key_inventory(entity)
+        warehouse_keys = self.warehouse_key_inventory(entity)
+        result = ReconciliationResult(
+            source_id=self.source.source_id,
+            entity=entity,
+            delete_semantics=self.delete_handling.value,
+            source_key_count=len(source_keys),
+            warehouse_key_count=len(warehouse_keys),
+            tombstoned_keys=tuple(sorted(warehouse_keys - source_keys)),
+            ran_at=datetime.now(UTC),
+        )
+        self.store.record_reconciliation(result, batch_id)
+        return result
+
+    def _reconcile_full_snapshot(
+        self, entity: str, old_warehouse_keys: set[str], parquet_path: Path
+    ) -> ReconciliationResult:
+        """Diff the previous snapshot's keys against the snapshot just staged.
+
+        Full-snapshot loads replace the staged entity wholesale, so the only
+        place the previous snapshot's key inventory exists is the pre-replace
+        Parquet — captured by extract() before the write.
+        """
+        new_keys = {
+            str(k)
+            for k in pq.read_table(parquet_path, columns=["source_id"])
+            .column("source_id")
+            .to_pylist()
+        }
+        result = ReconciliationResult(
+            source_id=self.source.source_id,
+            entity=entity,
+            delete_semantics=DeleteSemantics.ANTI_JOIN.value,
+            source_key_count=len(new_keys),
+            warehouse_key_count=len(old_warehouse_keys),
+            tombstoned_keys=tuple(sorted(old_warehouse_keys - new_keys)),
+            ran_at=datetime.now(UTC),
+        )
+        self.store.record_reconciliation(result, self._snapshot_batch_id())
+        return result
+
+    def _snapshot_batch_id(self) -> str | None:
+        """Batch id to attribute a full-snapshot reconciliation to, if known."""
+        return None
 
     def arrow_schema(self, entity: str) -> pa.Schema | None:
         """Declared Arrow schema for an entity's staging Parquet, if known.
@@ -237,24 +377,35 @@ class BaseConnector(ABC):
         # Incremental API sources append watermark-partitioned parts in v0.2.
         return self.config.parquet_root(self.source.source_id) / f"{entity}.parquet"
 
+    def stamped_records(
+        self, entity: str, mode: ExtractionMode, watermark: str | None
+    ) -> Iterator[dict[str, object]]:
+        """Yield provenance-stamped records — the shared ingestion shape.
+
+        Every consumer of an extraction (the Parquet writer here, the dlt
+        resource wrapper, tests) streams through this one surface so staging
+        output cannot drift between them.
+        """
+        for record in self._iter_records(entity, mode, watermark):
+            yield self._stamp(record, entity)
+
     def _write_records_to_parquet(
         self, entity: str, parquet_path: Path, mode: ExtractionMode, watermark: str | None
     ) -> int:
-        """Stream ``_iter_records`` through provenance stamping into Parquet."""
+        """Stream ``stamped_records`` into Parquet (records arrive stamped)."""
         rows = 0
-        batch_iter = self._iter_records(entity, mode, watermark)
+        batch_iter = self.stamped_records(entity, mode, watermark)
         first = next(batch_iter, None)
         if first is None:
             return 0
-        stamped = self._stamp(first, entity)
         declared = self.arrow_schema(entity)
-        schema = declared if declared is not None else pa.Table.from_pylist([stamped]).schema
+        schema = declared if declared is not None else pa.Table.from_pylist([first]).schema
         parquet_path.parent.mkdir(parents=True, exist_ok=True)
-        pending: list[dict[str, object]] = [stamped]
+        pending: list[dict[str, object]] = [first]
         rows += 1
         with pq.ParquetWriter(parquet_path, schema) as writer:
             for record in batch_iter:
-                pending.append(self._stamp(record, entity))
+                pending.append(record)
                 rows += 1
                 if len(pending) >= PARQUET_BATCH_SIZE:
                     writer.write_table(pa.Table.from_pylist(pending, schema=schema))
@@ -281,7 +432,7 @@ class BaseConnector(ABC):
             raise ConnectorError(
                 f"record for {self.source.source_id}/{entity} is missing natural key fields {missing}"
             )
-        natural_id = ":".join(str(record[f]) for f in key_fields)
+        natural_id = natural_id_for(key_fields, record)
         stamped: dict[str, object] = {**record}
         stamped["source_system"] = self.erp_id
         stamped["source_id"] = natural_id
