@@ -37,7 +37,7 @@ GRAPHQL_URL = os.environ.get("WREN_UI_GRAPHQL_URL", "http://wren-ui:3000/api/gra
 MDL_DIR = Path(os.environ.get("GENBI_MDL_DIR", "/mdl"))
 ENGINE_ETC_DIR = Path(os.environ.get("GENBI_ENGINE_ETC_DIR", "/engine-etc"))
 MCP_CONFIG_DIR = Path(os.environ.get("GENBI_MCP_CONFIG_DIR", "/mcp-config"))
-PROJECT_DISPLAY_NAME = os.environ.get("GENBI_PROJECT_DISPLAY_NAME", "Construction Supplies ERP")
+PROJECT_DISPLAY_NAME = os.environ.get("GENBI_PROJECT_DISPLAY_NAME", "ERP Control Plane (Sample)")
 DUCKDB_MOUNT_PATH = os.environ.get("GENBI_DUCKDB_MOUNT_PATH", "/data/analytics/analytics.duckdb")
 DUCKDB_CATALOG = os.environ.get("GENBI_DUCKDB_CATALOG", "analytics")
 
@@ -168,7 +168,9 @@ def wait_for_ai_service() -> None:
         except (urllib.error.URLError, OSError) as err:
             last_error = err
             time.sleep(POLL_INTERVAL_SECONDS)
-    raise RuntimeError(f"wren-ai-service not ready after {READINESS_TIMEOUT_SECONDS}s: {last_error}")
+    raise RuntimeError(
+        f"wren-ai-service not ready after {READINESS_TIMEOUT_SECONDS}s: {last_error}"
+    )
 
 
 def is_project_registered() -> bool:

@@ -154,7 +154,7 @@ services:
       GENBI_MDL_DIR: /mdl
       GENBI_ENGINE_ETC_DIR: /engine-etc
       GENBI_MCP_CONFIG_DIR: /mcp-config
-      GENBI_PROJECT_DISPLAY_NAME: ${GENBI_PROJECT_DISPLAY_NAME:-Construction Supplies ERP}
+      GENBI_PROJECT_DISPLAY_NAME: ${GENBI_PROJECT_DISPLAY_NAME:-ERP Control Plane (Sample)}
       # Same container path the engine/ibis mounts use (genbi.connection).
       GENBI_DUCKDB_MOUNT_PATH: /data/analytics/analytics.duckdb
       GENBI_DUCKDB_CATALOG: analytics
