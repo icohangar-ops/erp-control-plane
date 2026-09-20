@@ -7,7 +7,7 @@ select
     coalesce(loc.canonical_location_key, {{ sk("home_branch") }}) as home_location_key,
     s.home_branch,
     s.loaded_at
-from {{ ref('stg_csvsftp__salespeople') }} s
+from {{ demo_staging('salespeople') }} s
 join {{ ref('crosswalk_source_salesperson') }} cs
   on cs.source_system = s.source_system and cs.source_key = s.salesperson_code
 left join {{ ref('dim_location') }} loc on loc.branch_code = s.home_branch

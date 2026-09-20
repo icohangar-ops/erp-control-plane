@@ -12,6 +12,6 @@ select
     c.postal_code,
     c.batch_id as last_batch_id,
     c.loaded_at
-from {{ ref('stg_csvsftp__customers') }} c
+from {{ demo_staging('customers') }} c
 join {{ ref('crosswalk_source_customer') }} cc
   on cc.source_system = c.source_system and cc.source_key = c.customer_no

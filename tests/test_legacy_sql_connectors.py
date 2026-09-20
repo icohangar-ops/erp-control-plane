@@ -94,12 +94,20 @@ def harness(tmp_path: Path) -> Harness:
 
 
 def _watermark_tail(
-    entity: str, rows: list[dict[str, object]], values: list[str]
+    entity: str,
+    rows: list[dict[str, object]],
+    values: list[str],
+    column: str = "last_modified",
 ) -> tuple[list[str], list[tuple]]:
-    """Append the watermark column to a fixture result set (SELECT tail order)."""
+    """Append the watermark column to a fixture result set (SELECT tail order).
+
+    Real drivers return the watermark column in every mode — ``_select_sql``
+    appends it to the SELECT unconditionally — so backfill fixtures carry the
+    tail too (the GenBI demo found the width mismatch the hard way).
+    """
     desc, tuples = result_set(entity, rows)
     assert len(values) == len(tuples)
-    return [*desc, "last_modified"], [(*t, v) for t, v in zip(tuples, values, strict=True)]
+    return [*desc, column], [(*t, v) for t, v in zip(tuples, values, strict=True)]
 
 
 # ---------------------------------------------------------------------------
@@ -137,7 +145,10 @@ def test_every_legacy_connector_declares_all_nine_entities(tmp_path: Path) -> No
 
 def test_backfill_extraction_writes_provenance(harness: Harness) -> None:
     rows = [canonical_row("items", i) for i in (1, 2, 3)]
-    conn = FakeDbApiConnection([result_set("items", rows)])
+    desc, tuples = _watermark_tail(
+        "items", rows, ["2026-08-01T09:00:00"] * 3
+    )  # backfill: real-driver width (watermark tail)
+    conn = FakeDbApiConnection([(desc, tuples)])
     connector = harness.connector(conn)
 
     result = connector.extract("items")
@@ -155,6 +166,9 @@ def test_backfill_extraction_writes_provenance(harness: Harness) -> None:
     assert {"source_system", "source_id", "loaded_at"}.issubset(set(table.column_names))
     assert len(set(table.column("source_system").to_pylist())) == 1
     assert set(table.column("source_id").to_pylist()) == {"ITEM-0001", "ITEM-0002", "ITEM-0003"}
+    # The watermark column rides the SELECT tail (real drivers return it in
+    # backfill too) but is observed, never staged — found by the GenBI demo.
+    assert "last_modified" not in table.column_names
 
 
 def test_column_map_extraction_db2_iseries(tmp_path: Path) -> None:
@@ -164,6 +178,9 @@ def test_column_map_extraction_db2_iseries(tmp_path: Path) -> None:
     assert src.columns is not None, "Db2 for i sales_order_lines must declare a column map"
     row = canonical_row("sales_order_lines", 7)
     desc, tuples = result_set("sales_order_lines", [row], columns=src.columns)
+    # Real-driver shape: the watermark column rides the SELECT tail in
+    # backfill too (OLUPDT for Db2 for i sales_order_lines).
+    desc, tuples = [*desc, src.incremental_column], [(*tuples[0], "2026-08-01T09:00:00")]
     conn = FakeDbApiConnection([(desc, tuples)])
     connector = harness.connector(conn)
 
@@ -207,9 +224,10 @@ def test_incremental_watermark_filters_and_advances(harness: Harness) -> None:
 
 def test_anti_join_reconciliation_tombstones_deletes(harness: Harness) -> None:
     rows = [canonical_row("items", i) for i in (1, 2, 3)]
-    conn = FakeDbApiConnection(
-        [result_set("items", rows), (["item_no"], [("ITEM-0001",), ("ITEM-0002",)])]
-    )
+    desc, tuples = _watermark_tail(
+        "items", rows, ["2026-08-01T09:00:00"] * 3
+    )  # backfill: real-driver width (watermark tail)
+    conn = FakeDbApiConnection([(desc, tuples), (["item_no"], [("ITEM-0001",), ("ITEM-0002",)])])
     connector = harness.connector(conn)
     connector.extract("items")
 
@@ -327,7 +345,10 @@ def test_dlt_resource_streams_stamped_records(harness: Harness) -> None:
     from connectors.legacy.dlt_source import as_dlt_resource
 
     rows = [canonical_row("vendors", i) for i in (1, 2)]
-    conn = FakeDbApiConnection([result_set("vendors", rows)])
+    desc, tuples = _watermark_tail(
+        "vendors", rows, ["2026-08-01T09:00:00"] * 2
+    )  # backfill: real-driver width (watermark tail)
+    conn = FakeDbApiConnection([(desc, tuples)])
     connector = harness.connector(conn)
 
     streamed = list(as_dlt_resource(connector, "vendors")())
@@ -367,7 +388,15 @@ def test_sap_hana_qualifies_the_settings_schema(tmp_path: Path) -> None:
     """db_schema prefixes every SQL path — SELECT and key scan alike."""
     harness = Harness(tmp_path, SapHanaConnector)
     rows = [canonical_row("items", 1)]
-    conn = FakeDbApiConnection([result_set("items", rows), (["item_no"], [("ITEM-0001",)])])
+    desc, tuples = result_set("items", rows)
+    # Real-driver shape: the SELECT tail carries the watermark in backfill too
+    # (_select_sql appends the incremental column unconditionally).
+    conn = FakeDbApiConnection(
+        [
+            ([*desc, "last_modified"], [(*tuples[0], "2026-08-01T09:00:00")]),
+            (["item_no"], [("ITEM-0001",)]),
+        ]
+    )
     base = harness.connector(conn)
     source = replace(base.source, settings={**base.source.settings, "db_schema": "B1SCHEMA"})
     scoped = SapHanaConnector(

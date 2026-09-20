@@ -4,4 +4,4 @@ select
     salesperson_code as source_key,
     {{ sk("source_system", "salesperson_code") }} as canonical_salesperson_key,
     loaded_at
-from {{ ref('stg_csvsftp__salespeople') }}
+from {{ demo_staging('salespeople') }}

@@ -15,6 +15,6 @@ select
     stg.state as ship_to_state,
     stg.postal_code as ship_to_postal_code,
     stg.loaded_at
-from {{ ref('stg_csvsftp__customers') }} stg
+from {{ demo_staging('customers') }} stg
 join {{ ref('crosswalk_source_customer') }} cc
   on cc.source_system = stg.source_system and cc.source_key = stg.customer_no

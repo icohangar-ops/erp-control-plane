@@ -3,5 +3,5 @@ select distinct
     {{ sk("category", "coalesce(subcategory, '-')") }} as category_key,
     category,
     subcategory
-from {{ ref('stg_csvsftp__items') }}
+from {{ demo_staging('items') }}
 where category is not null

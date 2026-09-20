@@ -8,4 +8,4 @@ select
     {{ sk("source_system", "item_no") }} as canonical_item_key,
     item_status,
     loaded_at
-from {{ ref('stg_csvsftp__items') }}
+from {{ demo_staging('items') }}

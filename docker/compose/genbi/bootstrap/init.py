@@ -37,7 +37,7 @@ GRAPHQL_URL = os.environ.get("WREN_UI_GRAPHQL_URL", "http://wren-ui:3000/api/gra
 MDL_DIR = Path(os.environ.get("GENBI_MDL_DIR", "/mdl"))
 ENGINE_ETC_DIR = Path(os.environ.get("GENBI_ENGINE_ETC_DIR", "/engine-etc"))
 MCP_CONFIG_DIR = Path(os.environ.get("GENBI_MCP_CONFIG_DIR", "/mcp-config"))
-PROJECT_DISPLAY_NAME = os.environ.get("GENBI_PROJECT_DISPLAY_NAME", "Construction Supplies ERP")
+PROJECT_DISPLAY_NAME = os.environ.get("GENBI_PROJECT_DISPLAY_NAME", "ERP Control Plane (Sample)")
 DUCKDB_MOUNT_PATH = os.environ.get("GENBI_DUCKDB_MOUNT_PATH", "/data/analytics/analytics.duckdb")
 DUCKDB_CATALOG = os.environ.get("GENBI_DUCKDB_CATALOG", "analytics")
 
@@ -132,7 +132,10 @@ def wait_for_wren_ui() -> None:
     last_error: Exception | None = None
     while time.monotonic() < deadline:
         try:
-            graphql_request("query { settings { productVersion } }")
+            # Pure introspection — `settings` resolves through the current
+            # project and errors "No project found" on a fresh install,
+            # which is exactly the state this bootstrap then fixes.
+            graphql_request("query { __typename }")
             log.info("wren-ui is ready")
             return
         except (RuntimeError, urllib.error.URLError) as err:
@@ -141,8 +144,44 @@ def wait_for_wren_ui() -> None:
     raise RuntimeError(f"wren-ui not ready after {READINESS_TIMEOUT_SECONDS}s: {last_error}")
 
 
+def wait_for_ai_service() -> None:
+    """Wait until wren-ai-service accepts HTTP connections.
+
+    The deploy mutation makes wren-ui call the AI service, but compose's
+    `service_started` is not readiness (the AI image has no healthcheck) and
+    uvicorn binds ~60s after boot — a deploy fired before the bind dies with
+    ECONNREFUSED (seen in the demo bring-up).
+    """
+    base = os.environ.get("WREN_AI_SERVICE_URL", "http://wren-ai-service:5555")
+    deadline = time.monotonic() + READINESS_TIMEOUT_SECONDS
+    last_error: Exception | None = None
+    while time.monotonic() < deadline:
+        try:
+            urllib.request.urlopen(f"{base}/health", timeout=5)
+            log.info("wren-ai-service is ready")
+            return
+        except urllib.error.HTTPError:
+            # Any HTTP response means the port is bound; a non-2xx health
+            # reply is still "up" for deploy purposes.
+            log.info("wren-ai-service is ready (health returned HTTP error)")
+            return
+        except (urllib.error.URLError, OSError) as err:
+            last_error = err
+            time.sleep(POLL_INTERVAL_SECONDS)
+    raise RuntimeError(
+        f"wren-ai-service not ready after {READINESS_TIMEOUT_SECONDS}s: {last_error}"
+    )
+
+
 def is_project_registered() -> bool:
-    data = graphql_request("query { settings { dataSource { type } } }")
+    try:
+        data = graphql_request("query { settings { dataSource { type } } }")
+    except RuntimeError as err:
+        # A project-less UI raises through the settings resolver — that is
+        # the not-registered state, not a probe failure.
+        if "No project found" not in str(err):
+            raise
+        return False
     return bool((data.get("settings") or {}).get("dataSource"))
 
 
@@ -303,6 +342,16 @@ def register_curated_mdl(mdl: dict[str, Any]) -> None:
             },
         )
 
+    ensure_deployed()
+
+
+def ensure_deployed() -> None:
+    """Deploy the MDL context; idempotent (rebuilds from current models).
+
+    Runs on every bootstrap — also heals a crash between registration and
+    deploy, which would otherwise leave a registered-but-never-deployed
+    project that re-runs skip forever.
+    """
     log.info("deploying (builds the MDL context for the AI service)")
     deployed = graphql_request("mutation Deploy { deploy }")
     if not deployed.get("deploy"):
@@ -356,7 +405,7 @@ def poll_deploy_status() -> None:
         except RuntimeError as err:
             log.warning("modelSync status query failed (%s); continuing", err)
             return
-        if status in (None, "FINISHED", "ERROR", "error"):
+        if status in (None, "FINISHED", "SYNCRONIZED", "ERROR", "error"):
             if status == "ERROR" or status == "error":
                 raise RuntimeError(f"wren-ui model sync ended with status {status!r}")
             log.info("deploy finished (modelSync status: %s)", status)
@@ -378,13 +427,15 @@ def main() -> None:
     write_engine_config()
     write_mcp_config(mdl)
     wait_for_wren_ui()
-    if is_project_registered():
+    wait_for_ai_service()
+    if not is_project_registered():
+        register_curated_mdl(mdl)
+    else:
         log.info(
             "WrenAI project already registered; skipping MDL registration "
             "(human curation in the UI is preserved)"
         )
-        return
-    register_curated_mdl(mdl)
+    ensure_deployed()
     log.info("GenBI bootstrap complete; WrenAI UI is served on the configured host port")
 
 

@@ -33,7 +33,7 @@ select
     s.source_row_no,
     s.batch_id,
     s.loaded_at
-from {{ ref('stg_csvsftp__sales_order_lines') }} s
+from {{ demo_staging('sales_order_lines') }} s
 join {{ ref('crosswalk_source_customer') }} cc
   on cc.source_system = s.source_system and cc.source_key = s.customer_no
 join {{ ref('crosswalk_source_item') }} ci

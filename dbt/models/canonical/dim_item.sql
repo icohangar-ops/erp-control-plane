@@ -15,7 +15,7 @@ select
     i.item_status,
     i.batch_id as last_batch_id,
     i.loaded_at
-from {{ ref('stg_csvsftp__items') }} i
+from {{ demo_staging('items') }} i
 join {{ ref('crosswalk_source_item') }} ci
   on ci.source_system = i.source_system and ci.source_key = i.item_no
 left join {{ ref('dim_item_category') }} ic

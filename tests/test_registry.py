@@ -16,6 +16,8 @@ FIRST_WAVE = {
     "epicor_eclipse_template",
     "eci_spruce_template",
     "d365_bc_template",
+    # Demo Informix tenant (GenBI end-to-end demo; runner enables it in memory).
+    "informix_demo",
     "cloud_erp_rest_template",
     # Legacy database connector pack (spec §5 rows 1-9; MariaDB shares MySQL's row).
     "informix_template",

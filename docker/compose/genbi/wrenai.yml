@@ -45,7 +45,10 @@ services:
       - "7432"
     volumes:
       - genbi_engine_etc:/usr/src/app/etc
-      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-./data/analytics}:/data/analytics:ro
+      # Relative bind paths in an included compose file resolve against THIS
+      # file's directory (docker/compose/genbi/), not the repo root — the
+      # repo-root-style paths the demo bring-up exposed mounted empty dirs.
+      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-../../../data/analytics}:/data/analytics:ro
 
   ibis-server:
     # Wren's connector layer (Python/ibis). Serves the MCP path and external
@@ -57,7 +60,7 @@ services:
     environment:
       WREN_ENGINE_ENDPOINT: http://wren-engine:8080
     volumes:
-      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-./data/analytics}:/data/analytics:ro
+      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-../../../data/analytics}:/data/analytics:ro
 
   wren-ai-service:
     # NL-to-SQL service (LiteLLM-based). Model configuration lives in
@@ -68,13 +71,18 @@ services:
     environment:
       PYTHONUNBUFFERED: 1
       CONFIG_PATH: ${GENBI_AI_CONFIG_PATH:-/app/config.yaml}
+      # The image entrypoint waits for `nc -z $QDRANT_HOST 6333` and starts
+      # uvicorn on $WREN_AI_SERVICE_PORT — neither has an image default, so
+      # both are set here exactly as the release's own compose file does.
+      QDRANT_HOST: qdrant
+      WREN_AI_SERVICE_PORT: "5555"
       # Spec §5: the key comes from the injected secret; it is never committed.
       # genbi-offline users set OPENAI_API_KEY=<any> + OPENAI_BASE_URL=<ollama>.
       OPENAI_API_KEY: ${OPENAI_API_KEY:-}
       OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
     volumes:
-      - ./docker/compose/genbi/config.yaml:/app/config.yaml:ro
-      - ./docker/compose/genbi/config-offline.yaml:/app/config-offline.yaml:ro
+      - ./config.yaml:/app/config.yaml:ro
+      - ./config-offline.yaml:/app/config-offline.yaml:ro
     depends_on:
       - qdrant
 
@@ -119,6 +127,10 @@ services:
       EXPERIMENTAL_ENGINE_RUST_VERSION: "false"
     volumes:
       - genbi_ui_data:/app/data
+      # The UI validates a DuckDB datasource's initSql (ATTACH) with its own
+      # embedded DuckDB at save time, so it needs the analytics file mounted
+      # read-only — same host path as wren-engine/ibis-server above.
+      - ${GENBI_ANALYTICS_DUCKDB_HOST_PATH:-../../../data/analytics}:/data/analytics:ro
     depends_on:
       wren-postgres:
         condition: service_healthy
@@ -142,13 +154,13 @@ services:
       GENBI_MDL_DIR: /mdl
       GENBI_ENGINE_ETC_DIR: /engine-etc
       GENBI_MCP_CONFIG_DIR: /mcp-config
-      GENBI_PROJECT_DISPLAY_NAME: ${GENBI_PROJECT_DISPLAY_NAME:-Construction Supplies ERP}
+      GENBI_PROJECT_DISPLAY_NAME: ${GENBI_PROJECT_DISPLAY_NAME:-ERP Control Plane (Sample)}
       # Same container path the engine/ibis mounts use (genbi.connection).
       GENBI_DUCKDB_MOUNT_PATH: /data/analytics/analytics.duckdb
       GENBI_DUCKDB_CATALOG: analytics
     volumes:
-      - ./docker/compose/genbi/bootstrap:/bootstrap:ro
-      - ./genbi/mdl:/mdl:ro
+      - ./bootstrap:/bootstrap:ro
+      - ../../../genbi/mdl:/mdl:ro
       - genbi_engine_etc:/engine-etc
       - genbi_mcp_config:/mcp-config
     depends_on:
@@ -176,7 +188,7 @@ services:
       CONNECTION_INFO_FILE: /mcp-config/connection_info.json
       MDL_PATH: /mcp-config/mdl.json
     volumes:
-      - ./docker/compose/genbi/mcp-server:/app:ro
+      - ./mcp-server:/app:ro
       - genbi_mcp_config:/mcp-config:ro
     depends_on:
       - ibis-server

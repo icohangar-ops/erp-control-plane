@@ -36,7 +36,8 @@ def all_connectors(tmp_path_factory):
 
 def test_every_source_in_sources_yml_builds_a_connector(all_connectors):
     sources = load_source_configs()
-    assert len(all_connectors) == len(sources) == 20
+    # 20 first-wave sources + the demo Informix tenant (GenBI demo path).
+    assert len(all_connectors) == len(sources) == 21
     assert {c.source.source_id for c in all_connectors} == {s.source_id for s in sources}
 
 
@@ -45,7 +46,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     assert [c.source.source_id for c in enabled] == ["csvsftp_ridgeline"]
     assert enabled[0].maturity is ConnectorMaturity.IMPLEMENTED
     templates = [c for c in all_connectors if not c.source.enabled]
-    assert len(templates) == 19
+    assert len(templates) == 20
     by_id = {c.source.source_id: c for c in templates}
     # Coded-but-unexercised connectors: never run against a live tenant/site,
     # so they stay credential-gated templates (dlt resources exist, fixtures
@@ -57,6 +58,9 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         "d365_bc_template",
         "cloud_erp_rest_template",
         "epicor_p21_template",
+        # Demo Informix tenant: enabled only by the GenBI demo runner, still
+        # fixture-driven (the pyodbc transport is stood in by the demo).
+        "informix_demo",
         "informix_template",
         "db2_luw_template",
         "db2_iseries_template",

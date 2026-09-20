@@ -1,0 +1,22 @@
+version: 2
+
+sources:
+  - name: informix_demo
+    description: >
+      Ridgeline Lumber & Supply demo staging loaded through the legacy
+      connector pack (demo Informix surface). Rows land as Parquet written by
+      the InformixConnector watermark batch; dbt reads them in place via
+      external locations. Every row carries connector provenance stamps
+      (source_system, source_id, batch_id, loaded_at).
+    meta:
+      external_location: "read_parquet('{{ env_var('LAKE_ROOT', 'data/lake') }}/parquet/informix_demo/{name}.parquet')"
+    tables:
+      - name: items
+      - name: salespeople
+      - name: customers
+      - name: vendors
+      - name: sales_order_lines
+      - name: purchase_order_lines
+      - name: invoice_lines
+      - name: inventory_snapshots
+      - name: gl_entries

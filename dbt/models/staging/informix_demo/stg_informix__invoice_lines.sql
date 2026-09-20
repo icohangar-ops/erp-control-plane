@@ -1,0 +1,21 @@
+select
+    invoice_no,
+    line_no,
+    invoice_date,
+    order_no,
+    customer_no,
+    branch_code,
+    item_no,
+    uom,
+    invoiced_qty,
+    unit_price,
+    unit_cost,
+    freight_amt,
+    tax_amt,
+    source_system,
+    source_id,
+    source_file,
+    source_row_no,
+    batch_id,
+    loaded_at
+from {{ source('informix_demo', 'invoice_lines') }}

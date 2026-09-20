@@ -109,6 +109,35 @@ class SupersetClient:
     # ------------------------------------------------------------ objects
     def get_database(self, database_id: int) -> dict[str, Any]:
         result = self.request("GET", f"/api/v1/database/{database_id}")
+        item = result.get("result", {})
+        if "sqlalchemy_uri" not in item:
+            # Superset 4.1.1 omits sqlalchemy_uri from the item schema (it is in
+            # list_select_columns only, and the list endpoint does not allow
+            # filtering by id). Page the list and match the id so the spec
+            # §4.2.6 server-side READ_ONLY check can run against the real URI.
+            page = 0
+            listed: dict[str, Any] | None = None
+            while listed is None and page < 10:
+                query = json.dumps({"page": page, "page_size": 100})
+                rows = self.request("GET", "/api/v1/database/", params={"q": query}).get(
+                    "result", []
+                )
+                listed = next((r for r in rows if int(r.get("id", -1)) == database_id), None)
+                if listed is None and len(rows) < 100:
+                    break
+                page += 1
+            if listed and "sqlalchemy_uri" in listed:
+                item = {**listed, **item}
+        return item
+
+    def update_database(self, database_id: int, payload: dict[str, Any]) -> dict[str, Any]:
+        """PUT a database; the response echoes the STORED fields (incl. the URI).
+
+        Used as the read-back for the spec §4.2.6 check on Superset builds that
+        hide ``sqlalchemy_uri`` on every read path: re-asserting an unchanged
+        field returns the server-side stored value without altering it.
+        """
+        result = self.request("PUT", f"/api/v1/database/{database_id}", json=payload)
         return result.get("result", {})
 
     def ensure_dataset(
