@@ -1,7 +1,7 @@
 # =============================================================================
 # construction-supplies-erp-control-plane — developer & deployment entry points
 # =============================================================================
-.PHONY: help demo api up up-bi down dbt-build dbt-test test lint typecheck ci clean
+.PHONY: help demo api up up-bi down dbt-build dbt-test test lint typecheck ci evals evals-parity clean
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-12s\033[0m %s\n", $$1, $$2}'
@@ -40,6 +40,12 @@ typecheck: ## Byte-compile every module (basic import sanity)
 	python -m compileall -q connectors control_plane orchestration demo scripts api
 
 ci: lint typecheck test ## Everything CI runs locally
+
+evals-parity: ## GenBI eval gate: golden Q&A set matches the dbt kpi_headline mart (CI)
+	python analytics/evals/run_evals.py --check-parity
+
+evals: ## Run live GenBI evals against WrenAI (WREN_URL=http://localhost:5555 make evals)
+	python analytics/evals/run_evals.py --live --wren-url "${WREN_URL:-http://localhost:5555}"
 
 clean: ## Remove regenerable pipeline data
 	rm -rf data/

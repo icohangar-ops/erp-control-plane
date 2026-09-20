@@ -109,6 +109,24 @@ The Ridgeline dealer KPI dashboard, provisioned idempotently by
 
 ![Ridgeline dealer KPI dashboard — revenue and fill-rate charts](docs/assets/superset/dashboard-mid.png)
 
+## GenBI evaluation (WrenAI + Ragas)
+
+The governed GenBI layer (WrenAI NL→SQL over the MDL, Qdrant retrieval) is
+evaluated against a versioned golden Q→A set pinned to dbt `kpi_headline`
+truth — 21 questions, one per headline metric, with expected values,
+units, and tolerances. Runbook:
+[`analytics/evals/README.md`](analytics/evals/README.md).
+
+- **CI gate (keyless):** the `dbt` job builds the mart and checks golden-set
+  parity, so a dbt change that moves a headline KPI without regenerating the
+  golden set fails CI (`make evals-parity`).
+- **Live e2e:** pose every golden question to a running wren-ai-service,
+  execute the generated SQL against the DuckDB mart, and score correctness
+  (`WREN_URL=http://localhost:5555 make evals`).
+- **Ragas judge (optional):** faithfulness, answer relevancy, and context
+  precision in an isolated venv (`requirements-evals.txt`) — never installed
+  into the app environment (its `sqlglot` pin conflicts with `dagster-dbt`).
+
 ## Demo API (serverless-ready)
 
 `api/index.py` is a lean FastAPI + DuckDB API over the seeded dealer data — the

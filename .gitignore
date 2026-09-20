@@ -39,3 +39,7 @@ dbt/packages/
 .ruff_cache/
 .mypy_cache/
 .vercel
+
+# GenBI eval reports (regenerable) and the isolated ragas venv
+/analytics/evals/reports/
+/.venv-evals/

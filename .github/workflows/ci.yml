@@ -40,6 +40,8 @@ jobs:
       - run: python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
       - name: dbt build (all models + tests, DuckDB)
         run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo
+      - name: GenBI golden-set parity (Ragas eval gate)
+        run: python analytics/evals/run_evals.py --check-parity
 
   compose:
     runs-on: ubuntu-latest

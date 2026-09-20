@@ -1,0 +1,133 @@
+schema_version: 1
+generated_from: main_marts.kpi_headline
+window:
+  start: '2026-01-06'
+  end: '2026-08-25'
+  days: 232
+cases:
+- id: gmroi
+  question: What is our GMROI (gross margin return on inventory investment)?
+  metric: gmroi
+  unit: ratio
+  expected: 1.73
+  tolerance: 0.005
+- id: inventory_turns
+  question: How many times do we turn our inventory?
+  metric: inventory_turns
+  unit: ratio
+  expected: 5.34
+  tolerance: 0.005
+- id: dio_days
+  question: What is our days inventory outstanding?
+  metric: dio_days
+  unit: days
+  expected: 68.3
+  tolerance: 0.05
+- id: weeks_of_supply
+  question: How many weeks of supply do we carry?
+  metric: weeks_of_supply
+  unit: days
+  expected: 9.8
+  tolerance: 0.05
+- id: gross_margin_pct
+  question: What is our gross margin percentage?
+  metric: gross_margin_pct
+  unit: percent
+  expected: 0.2443
+  tolerance: 0.005
+- id: line_fill_rate
+  question: What is our line fill rate?
+  metric: line_fill_rate
+  unit: percent
+  expected: 0.9113
+  tolerance: 0.005
+- id: order_fill_rate
+  question: What is our order fill rate?
+  metric: order_fill_rate
+  unit: percent
+  expected: 0.6809
+  tolerance: 0.005
+- id: otd_pct
+  question: What share of orders ship on time?
+  metric: otd_pct
+  unit: percent
+  expected: 0.8119
+  tolerance: 0.005
+- id: otif_pct
+  question: What is our OTIF (on-time in-full) rate?
+  metric: otif_pct
+  unit: percent
+  expected: 0.5444
+  tolerance: 0.005
+- id: backorder_rate
+  question: What share of lines end up backordered?
+  metric: backorder_rate
+  unit: percent
+  expected: 0.2099
+  tolerance: 0.005
+- id: vendor_fill_rate
+  question: What is our vendor fill rate?
+  metric: vendor_fill_rate
+  unit: percent
+  expected: 0.7453
+  tolerance: 0.005
+- id: ppv_pct
+  question: What is our purchase price variance as a percentage?
+  metric: ppv_pct
+  unit: percent
+  expected: 0.0124
+  tolerance: 0.005
+- id: dso_days
+  question: How many days of sales are outstanding (DSO)?
+  metric: dso_days
+  unit: days
+  expected: 50.7
+  tolerance: 0.05
+- id: dpo_days
+  question: How many days payable outstanding do we run?
+  metric: dpo_days
+  unit: days
+  expected: 29.3
+  tolerance: 0.05
+- id: ccc_days
+  question: What is our cash conversion cycle in days?
+  metric: ccc_days
+  unit: days
+  expected: 89.7
+  tolerance: 0.05
+- id: close_cycle_days
+  question: How many days does the monthly close take?
+  metric: close_cycle_days
+  unit: days
+  expected: 15.0
+  tolerance: 0.05
+- id: same_branch_revenue_pct
+  question: What share of revenue is same-branch?
+  metric: same_branch_revenue_pct
+  unit: percent
+  expected: 0.5128
+  tolerance: 0.005
+- id: organic_revenue_pct
+  question: What share of revenue is organic?
+  metric: organic_revenue_pct
+  unit: percent
+  expected: 0.8301
+  tolerance: 0.005
+- id: acquired_revenue_pct
+  question: What share of revenue comes from acquisitions?
+  metric: acquired_revenue_pct
+  unit: percent
+  expected: 0.1699
+  tolerance: 0.005
+- id: sales_per_fte_annualized
+  question: What is annualized sales per FTE?
+  metric: sales_per_fte_annualized
+  unit: usd
+  expected: 316718.0
+  tolerance: 1.0
+- id: avg_ticket
+  question: What is our average ticket?
+  metric: avg_ticket
+  unit: usd
+  expected: 13306.99
+  tolerance: 0.01
