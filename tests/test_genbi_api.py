@@ -52,6 +52,7 @@ def env(tmp_path: Path, analytics_file: Path) -> dict[str, str]:
         "GENBI_ANALYTICS_DUCKDB_PATH": str(analytics_file),
         "GENBI_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
         "GENBI_COVERAGE_PATH": str(tmp_path / "coverage.jsonl"),
+        "GENBI_CHP_DECISIONS_PATH": str(tmp_path / "chp_decisions.jsonl"),
     }
 
 
@@ -131,3 +132,36 @@ def test_root_endpoint_advertises_genbi_routes(client: TestClient) -> None:
     endpoints = client.get("/", headers={"accept": "application/json"}).json()["endpoints"]
     assert PROMOTE_URL in endpoints
     assert "/api/v1/genbi/coverage-requests" in endpoints
+
+
+def test_confirmed_promotion_records_a_locked_decision(
+    client: TestClient, fake: FakeSuperset
+) -> None:
+    response = client.post(
+        PROMOTE_URL, json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com"}
+    )
+    assert response.status_code == 200
+    chp = response.json()["chp"]
+    assert chp["session_status"] == "LOCKED"
+    assert chp["confirmed_by"] == "sam@cubiczan.com"
+    assert chp["foundation_score"] == 70  # general question: guardrails + bounded result
+
+    listing = client.get("/api/v1/genbi/decisions").json()
+    assert len(listing) == 1
+    record = listing[0]
+    assert record["envelope_valid"] is True
+    assert record["decision_id"].startswith("promote-")
+    detail = client.get(f"/api/v1/genbi/decisions/{record['decision_id']}").json()
+    assert detail["question"] == QUESTION
+    assert client.get("/api/v1/genbi/decisions/promote-missing").status_code == 404
+
+
+def test_chp_rejection_maps_to_422_and_audits(client: TestClient, fake: FakeSuperset) -> None:
+    response = client.post(PROMOTE_URL, json={**PROMOTE_PAYLOAD, "question": "asdf jkl"})
+    assert response.status_code == 422
+    assert "CHP" in response.json()["detail"]
+    assert not fake.charts
+
+    audit = client.get("/api/v1/genbi/audit").json()
+    assert audit[0]["outcome"] == "chp_rejected"
+    assert client.get("/api/v1/genbi/decisions").json() == []

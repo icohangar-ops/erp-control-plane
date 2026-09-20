@@ -1,0 +1,11 @@
+# Ragas judge dependencies for analytics/evals — install in an ISOLATED venv,
+# never into the app environment. Observed on 2026-09-20 (Python 3.13): ragas
+# upgrades sqlglot past the dagster-dbt pin (sqlglot[rs]<28.1.0), which breaks
+# dagster-dbt imports and the app test suite.
+#
+#   python -m venv .venv-evals
+#   .venv-evals/bin/pip install -r requirements-evals.txt
+#   .venv-evals/bin/python analytics/evals/run_evals.py --live --wren-url http://localhost:5555
+#
+# The deterministic scorer and the CI parity gate never need this file.
+ragas

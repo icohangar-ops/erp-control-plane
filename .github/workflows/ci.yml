@@ -43,6 +43,8 @@ jobs:
         # produced by the demo runner (demo/run_informix_demo.py), which
         # symmetrically excludes the csvsftp staging when it builds.
         run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
+      - name: GenBI golden-set parity (Ragas eval gate)
+        run: python analytics/evals/run_evals.py --check-parity
 
   compose:
     runs-on: ubuntu-latest

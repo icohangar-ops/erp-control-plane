@@ -20,11 +20,13 @@ from pathlib import Path
 # can rely on stable values.
 EXECUTED = "executed"
 GUARDRAIL_REJECTED = "guardrail_rejected"
+CHP_REJECTED = "chp_rejected"
 PROMOTED = "promoted"
 UPDATED = "updated"
 SUPERSET_ERROR = "superset_error"
 
 STAGE_EXECUTE = "execute"
+STAGE_CHP = "chp"
 STAGE_PERSIST = "persist"
 
 
