@@ -242,6 +242,7 @@ def env(tmp_path: Path, analytics_file: Path) -> dict[str, str]:
         "GENBI_ROW_CAP": "500",
         "GENBI_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
         "GENBI_COVERAGE_PATH": str(tmp_path / "coverage.jsonl"),
+        "GENBI_CHP_DECISIONS_PATH": str(tmp_path / "chp_decisions.jsonl"),
     }
 
 

@@ -4,6 +4,8 @@
 - ``POST /api/v1/genbi/coverage-requests``  — record a "not modeled yet" (spec §1)
 - ``GET  /api/v1/genbi/coverage-requests``  — the listable coverage queue
 - ``GET  /api/v1/genbi/audit``              — question -> SQL -> latency -> outcome
+- ``GET  /api/v1/genbi/decisions``          — the CHP decision ledger (newest first)
+- ``GET  /api/v1/genbi/decisions/{id}``     — one hardened promotion decision
 
 Services are built per request from the environment (Vercel-friendly); tests
 override the Superset transport via httpx and point the state paths at tmp dirs.
@@ -19,6 +21,7 @@ from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from api.genbi.audit import AuditTrail
+from api.genbi.chp import ChpRejection
 from api.genbi.config import GenbiSettings, NotConfigured
 from api.genbi.coverage import CoverageQueue
 from api.genbi.guardrails import GuardrailError, NotReadOnlyUri
@@ -41,6 +44,10 @@ class PromoteRequest(BaseModel):
     backing: BackingSpec | None = Field(
         default=None,
         description="Physical governed backing (schema+table); omit for a virtual dataset over the answer SQL.",
+    )
+    confirmed_by: str | None = Field(
+        default=None,
+        description="Named human confirmer for the CHP human lock; recorded in the decision ledger.",
     )
 
 
@@ -75,12 +82,16 @@ def promote_answer(request: PromoteRequest) -> dict[str, Any]:
             request.viz,
             answer_date=request.answer_date,
             backing=request.backing,
+            confirmed_by=request.confirmed_by,
         )
     except NotConfigured as exc:
         raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except NotReadOnlyUri as exc:
         # A governance misconfiguration, not caller error — the loop refuses to run.
         raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except ChpRejection as exc:
+        # CHP refused the promotion (R0 HALT, foundation REFRAME, human lock).
+        raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except GuardrailError as exc:
         raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except SupersetError as exc:
@@ -103,3 +114,18 @@ def list_coverage_requests() -> list[dict[str, Any]]:
 def list_audit(limit: int = 100) -> list[dict[str, Any]]:
     """Newest-first audit trail: question -> SQL -> latency -> outcome."""
     return build_service().audit.list(limit)
+
+
+@router.get("/decisions")
+def list_decisions(limit: int = 100) -> list[dict[str, Any]]:
+    """Newest-first CHP decision ledger: every promotion's hardened decision record."""
+    return build_service().gate.records.list(limit)
+
+
+@router.get("/decisions/{decision_id}")
+def get_decision(decision_id: str) -> dict[str, Any]:
+    """One CHP decision record — the mechanical answer to "why is this tile showing X?"."""
+    record = build_service().gate.records.get(decision_id)
+    if record is None:
+        raise HTTPException(HTTPStatus.NOT_FOUND, detail=f"no CHP decision record {decision_id}")
+    return record

@@ -4,3 +4,6 @@
 fastapi==0.141.1
 duckdb==1.5.5
 httpx==0.28.1
+# CHP promotion gate (api/genbi/chp.py) — pure Python, no transitive deps,
+# so the dagster-dbt sqlglot pin stays untouched.
+consensus-hardening-protocol==0.1.1

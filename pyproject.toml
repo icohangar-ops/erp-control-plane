@@ -8,6 +8,7 @@ license = { text = "Proprietary" }
 authors = [{ name = "Cubiczan Engineering" }]
 
 dependencies = [
+    "consensus-hardening-protocol==0.1.1",
     "duckdb==1.5.5",
     "fastapi==0.141.1",
     "pyarrow==25.0.1",

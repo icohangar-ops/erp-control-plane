@@ -40,6 +40,12 @@ class GenbiSettings:
     statement_timeout_seconds: float
     audit_path: Path
     coverage_path: Path
+    # CHP gate (consensus-hardening-protocol): the decision ledger path, the
+    # golden set used for promotion-time parity evidence, and whether the CHP
+    # human lock is mandatory for every promotion.
+    chp_decisions_path: Path
+    golden_path: Path
+    chp_require_human_lock: bool
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GenbiSettings:
@@ -65,6 +71,16 @@ class GenbiSettings:
             coverage_path=Path(
                 env.get("GENBI_COVERAGE_PATH", str(state_dir / "coverage_requests.jsonl"))
             ),
+            chp_decisions_path=Path(
+                env.get("GENBI_CHP_DECISIONS_PATH", str(state_dir / "chp_decisions.jsonl"))
+            ),
+            golden_path=Path(
+                env.get(
+                    "GENBI_GOLDEN_PATH", str(REPO_ROOT / "analytics" / "evals" / "golden_qa.yaml")
+                )
+            ),
+            chp_require_human_lock=env.get("GENBI_CHP_REQUIRE_HUMAN_LOCK", "").lower()
+            in {"1", "true", "yes"},
         )
 
 

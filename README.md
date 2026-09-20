@@ -127,6 +127,40 @@ units, and tolerances. Runbook:
   precision in an isolated venv (`requirements-evals.txt`) — never installed
   into the app environment (its `sqlglot` pin conflicts with `dagster-dbt`).
 
+## GenBI answer promotion — CHP-hardened
+
+The Ask → Save loop (`POST /api/v1/genbi/answers/promote`) is hardened with the
+[Consensus Hardening Protocol](https://pypi.org/project/consensus-hardening-protocol/)
+(Profile A, pure Python — `consensus-hardening-protocol==0.1.1` in
+`requirements.txt`). Every promotion becomes a CHP decision case, so the
+question "why is this tile showing 1.73?" has a mechanical answer:
+
+1. **R0 gate — before the engine.** The request must be solvable, scoped,
+   valid, and worth a promotion (analytical phrasing or a golden-set match) or
+   it is refused with nothing executed (`422`, audited as `chp_rejected`).
+2. **Guardrails — unchanged.** SELECT-only, single statement, READ_ONLY
+   DuckDB, statement timeout, row cap; every execution audited.
+3. **Foundation pass — the deterministic adversary.** The answer scores 0–100:
+   40 for guardrails passed, 30 for a bounded result, 30 for golden parity —
+   the executed value matching the dbt-pinned `analytics/evals/golden_qa.yaml`
+   case. Golden-set questions are `finance` domain and gate at CHP's finance
+   floor (100), so a financial KPI cannot self-certify without parity
+   evidence; a parity mismatch is refused outright. A general answer needs 70
+   (guardrails + a bounded result).
+4. **Human lock.** Every promotion opens as a CHP `PROVISIONAL_LOCK` case.
+   Passing `confirmed_by` (a named human) applies CHP third-party validation
+   and locks it (`LOCKED`). `GENBI_CHP_REQUIRE_HUMAN_LOCK=1` makes the
+   confirmer mandatory for every promotion.
+5. **Decision record.** The case, verdicts, parity evidence, and promoted
+   artifact ids are sealed into a CHP payload envelope (integrity-checksummed,
+   not cryptographically signed) and appended to the JSONL decision ledger;
+   reads re-validate envelope integrity.
+
+Endpoints: `GET /api/v1/genbi/decisions` (newest first) and
+`GET /api/v1/genbi/decisions/{decision_id}`. Settings: `GENBI_GOLDEN_PATH`
+(parity truth), `GENBI_CHP_DECISIONS_PATH` (ledger), and
+`GENBI_CHP_REQUIRE_HUMAN_LOCK`.
+
 ## Demo API (serverless-ready)
 
 `api/index.py` is a lean FastAPI + DuckDB API over the seeded dealer data — the
