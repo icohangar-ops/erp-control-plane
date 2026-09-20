@@ -39,7 +39,10 @@ jobs:
         run: python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
       - run: python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
       - name: dbt build (all models + tests, DuckDB)
-        run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo
+        # CSV-path lineage only — the informix_demo staging models read Parquet
+        # produced by the demo runner (demo/run_informix_demo.py), which
+        # symmetrically excludes the csvsftp staging when it builds.
+        run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
 
   compose:
     runs-on: ubuntu-latest
@@ -68,7 +71,7 @@ jobs:
           mkdir -p data/analytics
           python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
           python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
-          dbt build --project-dir dbt --profiles-dir dbt --target demo
+          dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
           dbt docs generate --project-dir dbt --profiles-dir dbt --target demo
       - name: Validate curated MDL (structure, boundary, coupling, executability)
         run: python -m genbi.mdl_gen validate --duckdb data/analytics/analytics.duckdb
