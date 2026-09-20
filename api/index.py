@@ -11,6 +11,10 @@ source data the offline ``make demo`` pipeline ingests) as JSON:
   Superset dataset + chart (GenBI extension spec §4.2)
 - ``GET/POST /api/v1/genbi/coverage-requests`` -- the "not modeled yet" queue
 - ``GET /api/v1/genbi/audit``             -- question -> SQL -> latency -> outcome
+- ``POST /api/v1/genbi/data-room/search`` -- fail-closed dual-stage authorized retrieval
+  over the acquisition data rooms (Qdrant)
+- ``GET /api/v1/genbi/health/protocols``  -- protocol-level WrenAI/Qdrant health with
+  tool-schema drift alarms
 
 KPIs are computed with DuckDB using the same definitions as the dbt marts
 in ``dbt/models/marts/`` (kpi_window, kpi_inventory, kpi_service,
@@ -602,6 +606,9 @@ def root(request: Request) -> Any:
             "/api/v1/genbi/audit",
             "/api/v1/genbi/contracts",
             "/api/v1/genbi/approval-receipts",
+            "/api/v1/genbi/data-room/search",
+            "/api/v1/genbi/data-room/audit",
+            "/api/v1/genbi/health/protocols",
         ],
         "source_repository": "construction-supplies-erp-control-plane",
     }

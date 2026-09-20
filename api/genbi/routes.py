@@ -8,6 +8,11 @@
 - ``GET  /api/v1/genbi/decisions/{id}``     — one hardened promotion decision
 - ``GET  /api/v1/genbi/contracts``          — the compiled, enforceable agent contracts
 - ``GET  /api/v1/genbi/approval-receipts``  — the tool-approval receipt ledger
+- ``POST /api/v1/genbi/data-room/search``   — fail-closed dual-stage authorized retrieval
+  over the acquisition data rooms (Qdrant)
+- ``GET  /api/v1/genbi/data-room/audit``    — who searched what, what was returned/removed
+- ``GET  /api/v1/genbi/health/protocols``   — protocol-level probes of the WrenAI/Qdrant
+  surface (MCP handshake, tool-schema drift alarms, reason-coded failures)
 
 Services are built per request from the environment (Vercel-friendly); tests
 override the Superset transport via httpx and point the state paths at tmp dirs.
@@ -27,7 +32,13 @@ from api.genbi.audit import AuditTrail
 from api.genbi.chp import ChpRejection
 from api.genbi.config import GenbiSettings, NotConfigured
 from api.genbi.coverage import CoverageQueue
+from api.genbi.data_room import (
+    DataRoomRetrievalService,
+    DataRoomStoreUnavailable,
+    PolicySourceUnavailable,
+)
 from api.genbi.guardrails import GuardrailError, NotReadOnlyUri
+from api.genbi.mcp_health import ProtocolHealthProber
 from api.genbi.promote import PromotionService
 from api.genbi.receipts import ApprovalReceiptService
 from api.genbi.superset import SupersetClient, SupersetError
@@ -68,6 +79,17 @@ class CoverageRequestIn(BaseModel):
     reason: str = "not modeled yet"
 
 
+class DataRoomSearchRequest(BaseModel):
+    """An authorized data-room search: WHO (principal) sees WHAT (room)."""
+
+    principal: str = Field(
+        min_length=1, description="Requester identity, resolved by the auth layer"
+    )
+    room: str = Field(min_length=1, description="The acquisition data room to search")
+    query: str = Field(min_length=1, description="Natural-language search text")
+    top_k: int = Field(default=10, ge=1, le=50)
+
+
 def build_service(env: dict[str, str] | None = None) -> PromotionService:
     """Assemble the promotion service from environment settings."""
     settings = GenbiSettings.from_env(env)
@@ -80,6 +102,22 @@ def build_service(env: dict[str, str] | None = None) -> PromotionService:
         ),
         audit=AuditTrail(settings.audit_path),
         coverage=CoverageQueue(settings.coverage_path),
+    )
+
+
+def build_data_room_service(env: dict[str, str] | None = None) -> DataRoomRetrievalService:
+    """Assemble the data-room retrieval service from environment settings."""
+    return DataRoomRetrievalService.from_settings(GenbiSettings.from_env(env))
+
+
+def build_prober(env: dict[str, str] | None = None) -> ProtocolHealthProber:
+    """Assemble the protocol-health prober from environment settings."""
+    settings = GenbiSettings.from_env(env)
+    return ProtocolHealthProber(
+        mcp_url=settings.wren_mcp_url,
+        qdrant_url=settings.qdrant_url,
+        baseline_path=settings.mcp_health_baseline_path,
+        timeout=settings.mcp_health_timeout_seconds,
     )
 
 
@@ -158,3 +196,45 @@ def list_approval_receipts(limit: int = 100) -> list[dict[str, Any]]:
     """Newest-first tool-approval receipt events (issued + redeemed), beside the CHP ledger."""
     service = build_service()
     return ApprovalReceiptService.from_settings(service.settings).records.list(limit)
+
+
+@router.post("/data-room/search")
+def data_room_search(request: DataRoomSearchRequest) -> dict[str, Any]:
+    """Fail-closed dual-stage authorized retrieval over an acquisition data room.
+
+    Every returned document survived both the server-side ACL pre-filter and
+    the fresh-policy post-verify. A policy-source or store outage is a 503 —
+    the surface never degrades to unfiltered results.
+    """
+    service = build_data_room_service()
+    try:
+        result = service.search(request.principal, request.room, request.query, request.top_k)
+    except PolicySourceUnavailable as exc:
+        raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except DataRoomStoreUnavailable as exc:
+        raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    return {
+        "outcome": result.outcome,
+        "documents": result.documents,
+        "removed_doc_ids": result.removed_doc_ids,
+        "grant_count": result.grant_count,
+        "detail": result.detail,
+    }
+
+
+@router.get("/data-room/audit")
+def list_data_room_audit(limit: int = 100) -> list[dict[str, Any]]:
+    """Newest-first data-room retrieval events: who searched what, what was
+    returned, and what the post-verify stage removed."""
+    return build_data_room_service().audit.list(limit)
+
+
+@router.get("/health/protocols")
+def protocol_health() -> dict[str, Any]:
+    """Protocol-level health of the WrenAI/Qdrant GenBI surface.
+
+    Always HTTP 200 — a diagnostic surface, not a liveness probe. Monitors
+    alert on the ``alarms`` array (unreachable/timeout/auth/protocol_error/
+    schema_drift); ``baseline_missing`` means drift checking is not armed yet.
+    """
+    return build_prober().probe_all()

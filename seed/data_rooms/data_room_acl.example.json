@@ -1,0 +1,31 @@
+{
+  "schema": "cubiczan-data-room/acl/v1",
+  "_comment": "EXAMPLE acquisition data-room ACL policy (manager-can/employee-cannot per document). Copy to the path in GENBI_DATA_ROOM_POLICY_PATH (default data/genbi/data_room_acl.json) and edit. This file is a template — the live policy source is deployment state, never committed. Grants name a principal directly (principal:<identity>) or a role (role:<role>); an empty/missing allow list grants nobody. The policy source is re-read on every decision (uncached), so edits take effect on the next search.",
+  "principals": {
+    "maya@acquirer.example": { "roles": ["deal_lead"] },
+    "raul@acquirer.example": { "roles": ["analyst"] },
+    "cfo@acquirer.example": { "roles": [] }
+  },
+  "rooms": {
+    "ridgeline_diligence": {
+      "documents": {
+        "payroll_register_2025": {
+          "classification": "payroll",
+          "allow": ["role:deal_lead", "principal:cfo@acquirer.example"]
+        },
+        "pricing_book_2026": {
+          "classification": "pricing",
+          "allow": ["role:deal_lead", "role:analyst"]
+        },
+        "diligence_site_visit_notes": {
+          "classification": "diligence",
+          "allow": ["role:deal_lead", "role:analyst", "principal:cfo@acquirer.example"]
+        },
+        "redundancy_cost_model": {
+          "classification": "payroll",
+          "allow": ["role:deal_lead"]
+        }
+      }
+    }
+  }
+}

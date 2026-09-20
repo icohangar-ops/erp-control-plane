@@ -54,6 +54,20 @@ class GenbiSettings:
     # which resolves to the dev default locally and a refusal in production).
     approval_receipts_path: Path
     approval_receipt_key: str | None
+    # Acquisition data rooms ([Data] P3): the Qdrant surface and the SINGLE
+    # uncached policy source for document-level ACLs. The audit trail is
+    # stored in the runtime-state tree alongside the other GenBI ledgers.
+    qdrant_url: str
+    qdrant_api_key: str | None
+    qdrant_timeout_seconds: float
+    data_room_collection: str
+    data_room_policy_path: Path
+    data_room_audit_path: Path
+    # Protocol-level health probes ([SecOps] P3): the wren-mcp MCP endpoint,
+    # probe timeout, and the pinned tool-schema baseline for drift alarms.
+    wren_mcp_url: str
+    mcp_health_timeout_seconds: float
+    mcp_health_baseline_path: Path
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GenbiSettings:
@@ -94,6 +108,23 @@ class GenbiSettings:
                 env.get("GENBI_APPROVAL_RECEIPTS_PATH", str(state_dir / "approval_receipts.jsonl"))
             ),
             approval_receipt_key=env.get("GENBI_APPROVAL_RECEIPT_KEY", "").strip() or None,
+            qdrant_url=env.get("GENBI_QDRANT_URL", "http://localhost:6333"),
+            qdrant_api_key=env.get("GENBI_QDRANT_API_KEY", "").strip() or None,
+            qdrant_timeout_seconds=float(env.get("GENBI_QDRANT_TIMEOUT_SECONDS", "10")),
+            data_room_collection=env.get("GENBI_DATA_ROOM_COLLECTION", "acquisition_data_rooms"),
+            data_room_policy_path=Path(
+                env.get("GENBI_DATA_ROOM_POLICY_PATH", str(state_dir / "data_room_acl.json"))
+            ),
+            data_room_audit_path=Path(
+                env.get("GENBI_DATA_ROOM_AUDIT_PATH", str(state_dir / "data_room_audit.jsonl"))
+            ),
+            wren_mcp_url=env.get("GENBI_WREN_MCP_URL", "http://localhost:8907/mcp"),
+            mcp_health_timeout_seconds=float(env.get("GENBI_MCP_HEALTH_TIMEOUT_SECONDS", "5")),
+            mcp_health_baseline_path=Path(
+                env.get(
+                    "GENBI_MCP_HEALTH_BASELINE_PATH", str(state_dir / "mcp_health_baseline.json")
+                )
+            ),
         )
 
 
