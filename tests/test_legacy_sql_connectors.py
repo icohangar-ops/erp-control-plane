@@ -388,7 +388,15 @@ def test_sap_hana_qualifies_the_settings_schema(tmp_path: Path) -> None:
     """db_schema prefixes every SQL path — SELECT and key scan alike."""
     harness = Harness(tmp_path, SapHanaConnector)
     rows = [canonical_row("items", 1)]
-    conn = FakeDbApiConnection([result_set("items", rows), (["item_no"], [("ITEM-0001",)])])
+    desc, tuples = result_set("items", rows)
+    # Real-driver shape: the SELECT tail carries the watermark in backfill too
+    # (_select_sql appends the incremental column unconditionally).
+    conn = FakeDbApiConnection(
+        [
+            ([*desc, "last_modified"], [(*tuples[0], "2026-08-01T09:00:00")]),
+            (["item_no"], [("ITEM-0001",)]),
+        ]
+    )
     base = harness.connector(conn)
     source = replace(base.source, settings={**base.source.settings, "db_schema": "B1SCHEMA"})
     scoped = SapHanaConnector(
