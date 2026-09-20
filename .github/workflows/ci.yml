@@ -79,3 +79,24 @@ jobs:
         run: python -m genbi.mdl_gen validate --duckdb data/analytics/analytics.duckdb
       - name: Enforce dbt↔MDL coupling (spec §3.3)
         run: python -m genbi.mdl_gen check-coupling
+
+  metric-registry:
+    # Semantic metric registry gate ([Data] P1): the registry may only reference
+    # models and columns dbt defines, and recorded population sizes must match
+    # the built warehouse. A dbt change that alters grain or populations fails
+    # here until the registry is re-measured in the same PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e . dbt-duckdb
+      - name: Build dbt artifacts and marts
+        run: |
+          mkdir -p data/analytics
+          python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
+          python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
+          dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
+      - name: Enforce metric registry (schema, manifest cross-check, measured populations)
+        run: python -m analytics.metrics.check --dbt-dir dbt --duckdb data/analytics/analytics.duckdb

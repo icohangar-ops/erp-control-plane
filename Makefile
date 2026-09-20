@@ -44,6 +44,9 @@ ci: lint typecheck test ## Everything CI runs locally
 evals-parity: ## GenBI eval gate: golden Q&A set matches the dbt kpi_headline mart (CI)
 	python analytics/evals/run_evals.py --check-parity
 
+metric-registry: ## Semantic metric registry gate: schema, manifest cross-check, measured populations (CI)
+	python -m analytics.metrics.check --dbt-dir dbt --duckdb data/analytics/analytics.duckdb
+
 evals: ## Run live GenBI evals against WrenAI (WREN_URL=http://localhost:5555 make evals)
 	python analytics/evals/run_evals.py --live --wren-url "${WREN_URL:-http://localhost:5555}"
 

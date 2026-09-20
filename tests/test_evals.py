@@ -6,9 +6,11 @@ import json
 from pathlib import Path
 
 import pytest
+import yaml
 
 from analytics.evals import run_evals
 from analytics.evals.generate_golden import QUESTION_TEMPLATES, WINDOW_COLUMNS
+from analytics.metrics.registry import MetricDefinition, MetricRegistry, Population
 
 GOLDEN_PATH = Path(__file__).resolve().parent.parent / "analytics" / "evals" / "golden_qa.yaml"
 
@@ -94,3 +96,88 @@ def test_parity_against_local_mart() -> None:
         pytest.skip("dbt mart not built locally; CI dbt job runs the real gate")
     golden = run_evals.load_golden(GOLDEN_PATH)
     assert run_evals.check_parity(golden, str(mart)) == []
+
+
+# ---------------------------------------------------------------------------
+# Metric-registry refusal (the NL surface may only pick registry-qualified names)
+
+
+def _open_po_entry(name: str, measured: int) -> MetricDefinition:
+    source = name.split("@", 1)[1]
+    return MetricDefinition(
+        name=name,
+        description=f"{source} open purchase-order lines.",
+        dbt_model="fact_purchase_order_line",
+        expression="count(*) filter (where not is_received_in_full)",
+        population=Population(
+            count_sql=(
+                "select count(*) from main_canonical.fact_purchase_order_line "
+                f"where source_system = '{source}' and not is_received_in_full"
+            ),
+            measured=measured,
+        ),
+    )
+
+
+def test_parity_refuses_non_registry_metric() -> None:
+    refusals = run_evals.refuse_non_registry_metrics(
+        {"cases": [{"id": "bogus", "metric": "not_a_registered_metric"}]},
+        run_evals.load_registry(),
+    )
+    assert len(refusals) == 1
+    assert "bogus" in refusals[0]
+    assert "closed vocabulary" in refusals[0]
+
+
+def test_parity_refuses_metric_bound_outside_headline_mart() -> None:
+    refusals = run_evals.refuse_non_registry_metrics(
+        {"cases": [{"id": "po", "metric": "open_po@csv_sftp"}]},
+        run_evals.load_registry(),
+    )
+    assert len(refusals) == 1
+    assert "parity gate scores 'kpi_headline' columns only" in refusals[0]
+
+
+def test_parity_refuses_ambiguous_bare_metric() -> None:
+    registry = MetricRegistry(
+        [
+            _open_po_entry("open_po@csv_sftp", 69),
+            _open_po_entry("open_po@dynamics", 123),
+        ]
+    )
+    refusals = run_evals.refuse_non_registry_metrics(
+        {"cases": [{"id": "po", "metric": "open_po"}]},
+        registry,
+    )
+    assert len(refusals) == 1
+    assert "Refusing to guess" in refusals[0]
+
+
+def test_main_refuses_non_registry_golden(tmp_path: Path) -> None:
+    golden_path = tmp_path / "golden.yaml"
+    golden_path.write_text(
+        yaml.safe_dump(
+            {
+                "schema_version": 1,
+                "cases": [
+                    {
+                        "id": "bogus",
+                        "question": "What is the bogus metric?",
+                        "metric": "not_a_registered_metric",
+                        "unit": "ratio",
+                        "expected": 1.0,
+                        "tolerance": 0.5,
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    # The refusal fires before the warehouse existence check: the gate refuses
+    # non-registry names without needing a built mart.
+    assert (
+        run_evals.main(
+            ["--check-parity", "--golden", str(golden_path), "--duckdb", "missing.duckdb"]
+        )
+        == 1
+    )

@@ -32,14 +32,19 @@ import yaml
 
 try:
     from analytics.evals.wren_client import WrenAIClient, WrenAIError
+    from analytics.metrics.registry import MetricRegistry, MetricRegistryError, load_registry
 except ModuleNotFoundError:  # direct execution: python3 analytics/evals/run_evals.py
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
     from analytics.evals.wren_client import WrenAIClient, WrenAIError
+    from analytics.metrics.registry import MetricRegistry, MetricRegistryError, load_registry
 
 DEFAULT_GOLDEN = Path(__file__).with_name("golden_qa.yaml")
 DEFAULT_DUCKDB = os.environ.get("ANALYTICS_DUCKDB_PATH", "./data/analytics/analytics.duckdb")
 REPORT_DIR = Path(__file__).with_name("reports")
 VALID_UNITS = {"ratio", "percent", "days", "usd"}
+# The mart the parity gate scores; registry definitions bound elsewhere are
+# refused rather than silently compared against the wrong relation.
+PARITY_MODEL = "kpi_headline"
 
 _NUMBER_RE = re.compile(r"-?\d[\d,]*(?:\.\d+)?")
 
@@ -67,6 +72,33 @@ def load_golden(path: Path) -> dict:
         if float(case["tolerance"]) <= 0:
             raise SystemExit(f"golden case {case['id']!r} tolerance must be positive")
     return document
+
+
+# ---------------------------------------------------------------------------
+# Metric-registry refusal (cohortc pattern, [Data] P1)
+
+
+def refuse_non_registry_metrics(golden: dict, registry: MetricRegistry) -> list[str]:
+    """Refuse golden metrics the registry does not qualify.
+
+    The NL surface (WrenAI/Superset) may only pick registry-qualified names:
+    every golden ``metric`` must resolve to a registry definition bound to the
+    parity mart. Unknown names, ambiguous bare names, and definitions bound to
+    other relations are refused with the registry's own error — never a guess.
+    """
+    refusals = []
+    for case in golden["cases"]:
+        try:
+            entry = registry.resolve(case["metric"])
+        except MetricRegistryError as exc:
+            refusals.append(f"{case['id']}: {exc}")
+            continue
+        if entry.dbt_model != PARITY_MODEL:
+            refusals.append(
+                f"{case['id']}: metric {entry.name!r} is bound to {entry.dbt_model!r}; "
+                f"the parity gate scores {PARITY_MODEL!r} columns only"
+            )
+    return refusals
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +138,11 @@ def execute_sql_value(duckdb_path: str, sql: str) -> float:
 # Modes
 
 
-def check_parity(golden: dict, duckdb_path: str) -> list[str]:
+def check_parity(
+    golden: dict, duckdb_path: str, registry: MetricRegistry | None = None
+) -> list[str]:
+    if registry is None:
+        registry = load_registry()
     con = duckdb.connect(duckdb_path, read_only=True)
     try:
         cur = con.execute("select * from main_marts.kpi_headline")
@@ -122,14 +158,14 @@ def check_parity(golden: dict, duckdb_path: str) -> list[str]:
 
     mismatches = []
     for case in golden["cases"]:
-        metric = case["metric"]
-        if metric not in values:
-            mismatches.append(f"{case['id']}: metric column {metric!r} missing from the mart")
+        column = registry.resolve(case["metric"]).expression
+        if column not in values:
+            mismatches.append(f"{case['id']}: metric column {column!r} missing from the mart")
             continue
-        actual = float(values[metric])
+        actual = float(values[column])
         if not is_within_tolerance(case["unit"], case["expected"], case["tolerance"], actual):
             mismatches.append(
-                f"{case['id']}: mart {metric}={actual!r} does not match golden "
+                f"{case['id']}: mart {column}={actual!r} does not match golden "
                 f"expected={case['expected']!r} (tolerance {case['tolerance']})"
             )
     return mismatches
@@ -281,7 +317,7 @@ def ragas_judge(golden: dict, results: list[dict]) -> tuple[dict | None, str]:
 # Entry point
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="GenBI evaluation runner (golden set + Ragas).")
     modes = parser.add_mutually_exclusive_group(required=True)
     modes.add_argument(
@@ -297,15 +333,23 @@ def main() -> int:
     parser.add_argument("--duckdb", default=DEFAULT_DUCKDB)
     parser.add_argument("--report", type=Path, help="Where to write the JSON report (live/replay).")
     parser.add_argument("--judge", choices=("auto", "on", "off"), default="auto")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     golden = load_golden(args.golden)
 
     if args.check_parity:
+        # Refuse first: registry violations must not depend on a built mart.
+        registry = load_registry()
+        refusals = refuse_non_registry_metrics(golden, registry)
+        if refusals:
+            print("GenBI parity gate refused the golden set (registry violations):")
+            for refusal in refusals:
+                print(f"  - {refusal}")
+            return 1
         if not Path(args.duckdb).exists():
             print(f"mart not found at {args.duckdb} — run `make dbt-build` first", file=sys.stderr)
             return 2
-        mismatches = check_parity(golden, args.duckdb)
+        mismatches = check_parity(golden, args.duckdb, registry)
         if mismatches:
             print("GenBI golden-set parity FAILED:")
             for mismatch in mismatches:

@@ -94,6 +94,16 @@ models:
     columns:
       - name: po_line_key
         tests: [unique, not_null]
+      - name: source_system
+        description: Connector ERP stamp identifying the source system of the row (connectors/base.py erp_id).
+      - name: ordered_qty
+        description: Quantity ordered on the purchase-order line, in the line UoM.
+      - name: received_qty
+        description: Quantity received to date against the purchase-order line.
+      - name: is_received_in_full
+        description: >-
+          True when received_qty >= ordered_qty — the line is closed; false
+          marks an open line (the open_po metric population).
       - name: vendor_key
         tests:
           - relationships:
