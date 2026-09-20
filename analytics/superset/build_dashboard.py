@@ -40,8 +40,14 @@ import os
 import sqlite3
 import sys
 import uuid as uuid_lib
+from pathlib import Path
 
 import requests
+
+# The honest-badge module is the single source of badge truth for every KPI
+# surface (the pip-installed control_plane package at the repo root).
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from control_plane.badges import LIVE_KPI_MARKER, MOCK_KPI_MARKER
 
 BASE = os.environ.get("SUPERSET_URL", "http://localhost:8088")
 DB_NAME = "Ridgeline Dealer Analytics (DuckDB)"
@@ -231,7 +237,7 @@ def sql_expr(expr, label):
     return {"expressionType": "SQL", "sqlExpression": expr, "label": label}
 
 
-def tile_params(ds_id, metric, fmt):
+def tile_params(ds_id, metric, fmt, badge_marker=LIVE_KPI_MARKER):
     return {
         "datasource": f"{ds_id}__table",
         "viz_type": "big_number_total",
@@ -239,7 +245,9 @@ def tile_params(ds_id, metric, fmt):
         "groupby": [],
         "time_range": "No filter",
         "y_axis_format": fmt,
-        "subheader": "trailing 90-day window",
+        # Honest provenance badge ([Gov] T3): the marker is only ever LIVE here
+        # because main() probes the mart before any tile is built.
+        "subheader": f"{badge_marker} dbt mart · trailing 90-day window",
     }
 
 
@@ -513,6 +521,42 @@ def ensure_dashboard(ids):
 
 
 # ---------------------------------------------------------------- verify
+def probe_mart(ds_map):
+    """Resolve the honest badge tier before any KPI tile is built ([Gov] T3).
+
+    A tile may be badged LIVE only when the underlying mart actually answers;
+    a dead or empty mart is a refusal to build the dashboard — a mock number
+    must never render as a real KPI, so no tile is created from a data source
+    that cannot be certified.
+    """
+    res = api(
+        "POST",
+        "/api/v1/chart/data",
+        json={
+            "datasource": {"id": ds_map["kpi_headline"], "type": "table"},
+            "queries": [
+                {
+                    "metrics": [],
+                    "groupby": [],
+                    "time_range": "No filter",
+                    "filters": [],
+                    "row_limit": 1,
+                }
+            ],
+            "result_format": "json",
+            "result_type": "full",
+        },
+    )
+    status = res["result"][0].get("status")
+    rows = res["result"][0].get("data") or []
+    if status != "success" or not rows:
+        sys.exit(
+            f"{MOCK_KPI_MARKER} mart probe returned {status or 'no rows'} — refusing to build"
+            " KPI tiles from a source that cannot be certified"
+        )
+    print(f"{LIVE_KPI_MARKER} mart probe OK — KPI tiles will be badged {LIVE_KPI_MARKER}")
+
+
 def verify_charts(ids, ds_map):
     """Execute every chart's query via the chart-data endpoint; this catches
     DuckDB lock/permission problems before a demo does."""
@@ -564,6 +608,7 @@ def main():
     }
     for name, sql in VIRTUAL_DATASETS.items():
         ds_map[name] = ensure_dataset(name, sql=sql)
+    probe_mart(ds_map)  # honest badges: LIVE is earned before any tile exists
     ids = ensure_charts(ds_map)
     dash_id = ensure_dashboard(ids)
     verify_charts(ids, ds_map)

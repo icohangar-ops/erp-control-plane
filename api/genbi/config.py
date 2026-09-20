@@ -46,6 +46,14 @@ class GenbiSettings:
     chp_decisions_path: Path
     golden_path: Path
     chp_require_human_lock: bool
+    # Deployment mode for fail-closed governance defaults ("local" permits the
+    # documented dev receipt key; "production" refuses to run without a real one).
+    environment: str
+    # Tool-approval receipts (cubiczan-chp-mcp): the ledger is stored alongside
+    # the CHP decision ledger; the signing key is env-provided (None = unset,
+    # which resolves to the dev default locally and a refusal in production).
+    approval_receipts_path: Path
+    approval_receipt_key: str | None
 
     @classmethod
     def from_env(cls, env: Mapping[str, str] | None = None) -> GenbiSettings:
@@ -81,6 +89,11 @@ class GenbiSettings:
             ),
             chp_require_human_lock=env.get("GENBI_CHP_REQUIRE_HUMAN_LOCK", "").lower()
             in {"1", "true", "yes"},
+            environment=env.get("ENVIRONMENT", "local").strip().lower(),
+            approval_receipts_path=Path(
+                env.get("GENBI_APPROVAL_RECEIPTS_PATH", str(state_dir / "approval_receipts.jsonl"))
+            ),
+            approval_receipt_key=env.get("GENBI_APPROVAL_RECEIPT_KEY", "").strip() or None,
         )
 
 

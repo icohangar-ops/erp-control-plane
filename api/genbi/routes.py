@@ -6,6 +6,8 @@
 - ``GET  /api/v1/genbi/audit``              — question -> SQL -> latency -> outcome
 - ``GET  /api/v1/genbi/decisions``          — the CHP decision ledger (newest first)
 - ``GET  /api/v1/genbi/decisions/{id}``     — one hardened promotion decision
+- ``GET  /api/v1/genbi/contracts``          — the compiled, enforceable agent contracts
+- ``GET  /api/v1/genbi/approval-receipts``  — the tool-approval receipt ledger
 
 Services are built per request from the environment (Vercel-friendly); tests
 override the Superset transport via httpx and point the state paths at tmp dirs.
@@ -20,12 +22,14 @@ from typing import Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from api.contracts import ContractViolation
 from api.genbi.audit import AuditTrail
 from api.genbi.chp import ChpRejection
 from api.genbi.config import GenbiSettings, NotConfigured
 from api.genbi.coverage import CoverageQueue
 from api.genbi.guardrails import GuardrailError, NotReadOnlyUri
 from api.genbi.promote import PromotionService
+from api.genbi.receipts import ApprovalReceiptService
 from api.genbi.superset import SupersetClient, SupersetError
 from api.genbi.viz import BackingSpec, VizSpec
 
@@ -48,6 +52,14 @@ class PromoteRequest(BaseModel):
     confirmed_by: str | None = Field(
         default=None,
         description="Named human confirmer for the CHP human lock; recorded in the decision ledger.",
+    )
+    approval_receipt: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Tool-approval receipt (cubiczan-chp-mcp) binding this approval to the exact "
+            "normalized arguments, policy version, and expiry; required whenever "
+            "confirmed_by is set, and consumed on first use."
+        ),
     )
 
 
@@ -83,14 +95,18 @@ def promote_answer(request: PromoteRequest) -> dict[str, Any]:
             answer_date=request.answer_date,
             backing=request.backing,
             confirmed_by=request.confirmed_by,
+            approval_receipt=request.approval_receipt,
         )
     except NotConfigured as exc:
         raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
     except NotReadOnlyUri as exc:
         # A governance misconfiguration, not caller error — the loop refuses to run.
         raise HTTPException(HTTPStatus.SERVICE_UNAVAILABLE, detail=str(exc)) from exc
+    except ContractViolation as exc:
+        # An agent contract failed: the control surface's declared rule refused it.
+        raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except ChpRejection as exc:
-        # CHP refused the promotion (R0 HALT, foundation REFRAME, human lock).
+        # CHP refused the promotion (R0 HALT, foundation REFRAME, human lock, receipt).
         raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except GuardrailError as exc:
         raise HTTPException(HTTPStatus.UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
@@ -129,3 +145,16 @@ def get_decision(decision_id: str) -> dict[str, Any]:
     if record is None:
         raise HTTPException(HTTPStatus.NOT_FOUND, detail=f"no CHP decision record {decision_id}")
     return record
+
+
+@router.get("/contracts")
+def list_contracts() -> list[dict[str, str]]:
+    """The compiled agent contracts — every rule the runtime actually evaluates."""
+    return build_service().contracts.describe()
+
+
+@router.get("/approval-receipts")
+def list_approval_receipts(limit: int = 100) -> list[dict[str, Any]]:
+    """Newest-first tool-approval receipt events (issued + redeemed), beside the CHP ledger."""
+    service = build_service()
+    return ApprovalReceiptService.from_settings(service.settings).records.list(limit)

@@ -27,6 +27,7 @@ deployed serverless -- see docs/ARCHITECTURE.md for the container topology.
 from __future__ import annotations
 
 import threading
+import time
 from pathlib import Path
 from string import Template
 from typing import Any
@@ -36,6 +37,12 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
 from api.genbi.routes import router as genbi_router
+from control_plane.badges import (
+    MOCK_KPI_MARKER,
+    ProvenanceBadge,
+    assert_real,
+    resolve_badge,
+)
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DEALER_EXPORT_DIR = REPO_ROOT / "seed" / "dealer_export"
@@ -475,6 +482,62 @@ def compute_kpis(con: duckdb.DuckDBPyConnection | None = None) -> dict[str, Any]
     return kpis
 
 
+# --- honest KPI serving: LIVE -> CACHE, with provenance badges ---------------
+
+# Served KPI sets are cached so a failed data layer degrades honestly to a
+# labeled CACHE badge instead of an outage — never to a fabricated number.
+KPI_CACHE_TTL_SECONDS = 300
+_kpi_cache: dict[str, Any] | None = None
+_kpi_cache_at = 0.0
+_kpi_cache_lock = threading.Lock()
+
+
+def _resolve_kpis() -> tuple[dict[str, Any], ProvenanceBadge]:
+    """Resolve the KPI set with its provenance badge (LIVE -> CACHE -> fail).
+
+    Fail-closed honesty: a value that cannot be certified (None) downgrades
+    the badge to MOCK, and a data-layer failure with no cache raises — the
+    surface never fabricates a number to fill a KPI slot.
+    """
+    global _kpi_cache, _kpi_cache_at
+    try:
+        kpis = compute_kpis()
+    except Exception:
+        with _kpi_cache_lock:
+            cached, cached_at = _kpi_cache, _kpi_cache_at
+        if cached is None:
+            raise  # nothing ever computed — refuse rather than mock
+        age = int(time.time() - cached_at)
+        return cached, resolve_badge(
+            cached=True,
+            detail=f"live computation failed; serving the last real KPI set ({age}s old)",
+        )
+    null_keys = sorted(key for key, value in kpis.items() if key != "provenance" and value is None)
+    if null_keys:
+        # An uncertifiable value is MOCK and must never enter the cache — a
+        # later outage would otherwise serve it as a trusted CACHE fallback.
+        return kpis, resolve_badge(
+            mock=True, detail=f"KPI value(s) {', '.join(null_keys)} could not be certified"
+        )
+    with _kpi_cache_lock:
+        _kpi_cache = kpis
+        _kpi_cache_at = time.time()
+    return kpis, resolve_badge(
+        live=True,
+        detail="computed at request time from the seed CSVs (dbt mart definitions)",
+    )
+
+
+def _badge_payload(badge: ProvenanceBadge) -> dict[str, Any]:
+    """The JSON badge attached to every served KPI surface."""
+    return {
+        "tier": badge.tier,
+        "marker": badge.marker,
+        "detail": badge.detail,
+        "is_real": badge.is_real,
+    }
+
+
 def summarize_data(con: duckdb.DuckDBPyConnection | None = None) -> dict[str, Any]:
     """Row counts, date spans, and headcount for every seed domain."""
     con = con or get_connection()
@@ -537,6 +600,8 @@ def root(request: Request) -> Any:
             "/api/v1/genbi/answers/promote",
             "/api/v1/genbi/coverage-requests",
             "/api/v1/genbi/audit",
+            "/api/v1/genbi/contracts",
+            "/api/v1/genbi/approval-receipts",
         ],
         "source_repository": "construction-supplies-erp-control-plane",
     }
@@ -597,8 +662,8 @@ LANDING_PAGE_TEMPLATE = Template("""<!doctype html>
 """)
 
 
-def _kpi_tiles(kpis: dict[str, Any]) -> str:
-    """Format the headline KPI tiles embedded in the landing page."""
+def _kpi_tiles(kpis: dict[str, Any], badge: ProvenanceBadge) -> str:
+    """Format the headline KPI tiles embedded in the landing page (badged)."""
     tiles = [
         ("GMROI", f"{kpis['gmroi']:.2f}"),
         ("Inv. turns", f"{kpis['inventory_turns']:.2f}"),
@@ -606,23 +671,29 @@ def _kpi_tiles(kpis: dict[str, Any]) -> str:
         ("Line fill", f"{kpis['line_fill_rate'] * 100:.1f}%"),
         ("Vendor fill", f"{kpis['vendor_fill_rate'] * 100:.1f}%"),
     ]
-    return "".join(
-        f'<div class="kpi"><b>{value}</b><span>{name}</span></div>' for name, value in tiles
-    )
+    rendered = []
+    for name, value in tiles:
+        # Tripwire: a MOCK-tier value must never render as a real KPI tile.
+        assert_real(badge, context=f"landing KPI tile {name}")
+        rendered.append(f'<div class="kpi"><b>{value}</b><span>{name} {badge.marker}</span></div>')
+    return "".join(rendered)
 
 
 def _render_landing_page() -> str:
-    """Render the browser landing page with KPI values from the mart SQL."""
+    """Render the browser landing page with badged KPI values from the mart SQL."""
     try:
-        tiles = _kpi_tiles(compute_kpis())
+        kpis, badge = _resolve_kpis()
+        tiles = _kpi_tiles(kpis, badge)
     except Exception:  # the page must render even if the data layer fails
-        tiles = '<div class="kpi"><b>—</b><span>KPIs unavailable</span></div>'
+        tiles = f'<div class="kpi"><b>—</b><span>{MOCK_KPI_MARKER} KPIs unavailable</span></div>'
     return LANDING_PAGE_TEMPLATE.substitute(
         heading="Construction Supplies ERP Control Plane",
         lede=(
             "Read-only demo API over the seeded Ridgeline Lumber &amp; Supply "
             "dealer dataset. Headline KPIs below are computed at request time "
-            "with the same SQL definitions as the dbt marts."
+            "with the same SQL definitions as the dbt marts, and every value "
+            "carries a LIVE / CACHE / MOCK provenance badge — a mock number is "
+            "never presented as a real KPI."
         ),
         kpi_tiles=tiles,
         footer=(
@@ -656,4 +727,6 @@ def data_summary() -> dict[str, Any]:
 
 @app.get("/kpis")
 def kpis() -> dict[str, Any]:
-    return compute_kpis()
+    """The headline KPI set with its honest provenance badge (LIVE/CACHE/MOCK)."""
+    values, badge = _resolve_kpis()
+    return {**values, "provenance_badge": _badge_payload(badge)}

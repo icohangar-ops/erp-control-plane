@@ -104,6 +104,8 @@ def test_root_serves_json_to_api_clients():
         "/api/v1/genbi/answers/promote",
         "/api/v1/genbi/coverage-requests",
         "/api/v1/genbi/audit",
+        "/api/v1/genbi/contracts",
+        "/api/v1/genbi/approval-receipts",
     ]
 
 

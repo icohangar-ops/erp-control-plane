@@ -16,12 +16,14 @@ from test_genbi_promotion import (
     ANSWER_DATE,
     QUESTION,
     SQL,
+    VIZ,
     FakeSuperset,
     make_service,
 )
 
 from api import index as api_index
 from api.genbi import routes as genbi_routes
+from api.genbi.receipts import PROMOTION_TOOL, promotion_args, promotion_policy_version
 
 PROMOTE_URL = "/api/v1/genbi/answers/promote"
 PROMOTE_PAYLOAD: dict[str, Any] = {
@@ -53,6 +55,7 @@ def env(tmp_path: Path, analytics_file: Path) -> dict[str, str]:
         "GENBI_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
         "GENBI_COVERAGE_PATH": str(tmp_path / "coverage.jsonl"),
         "GENBI_CHP_DECISIONS_PATH": str(tmp_path / "chp_decisions.jsonl"),
+        "GENBI_APPROVAL_RECEIPTS_PATH": str(tmp_path / "approval_receipts.jsonl"),
     }
 
 
@@ -132,18 +135,36 @@ def test_root_endpoint_advertises_genbi_routes(client: TestClient) -> None:
     endpoints = client.get("/", headers={"accept": "application/json"}).json()["endpoints"]
     assert PROMOTE_URL in endpoints
     assert "/api/v1/genbi/coverage-requests" in endpoints
+    assert "/api/v1/genbi/contracts" in endpoints
+    assert "/api/v1/genbi/approval-receipts" in endpoints
+
+
+def _valid_receipt(env: dict[str, str], fake: FakeSuperset, actor: str) -> dict[str, Any]:
+    """Sign against a locally built service; the ledger paths and key come from env."""
+    service = make_service(env, fake)
+    return service.receipts.sign(
+        tool=PROMOTION_TOOL,
+        actor=actor,
+        args=promotion_args(
+            question=QUESTION, sql=SQL, answer_date=ANSWER_DATE, backing=None, viz=VIZ
+        ),
+        policy_version=promotion_policy_version(service.settings),
+    )
 
 
 def test_confirmed_promotion_records_a_locked_decision(
-    client: TestClient, fake: FakeSuperset
+    client: TestClient, env: dict[str, str], fake: FakeSuperset
 ) -> None:
+    receipt = _valid_receipt(env, fake, actor="sam@cubiczan.com")
     response = client.post(
-        PROMOTE_URL, json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com"}
+        PROMOTE_URL,
+        json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com", "approval_receipt": receipt},
     )
     assert response.status_code == 200
     chp = response.json()["chp"]
     assert chp["session_status"] == "LOCKED"
     assert chp["confirmed_by"] == "sam@cubiczan.com"
+    assert chp["approval_receipt"]["receipt_id"] == receipt["receipt_id"]
     assert chp["foundation_score"] == 70  # general question: guardrails + bounded result
 
     listing = client.get("/api/v1/genbi/decisions").json()
@@ -165,3 +186,50 @@ def test_chp_rejection_maps_to_422_and_audits(client: TestClient, fake: FakeSupe
     audit = client.get("/api/v1/genbi/audit").json()
     assert audit[0]["outcome"] == "chp_rejected"
     assert client.get("/api/v1/genbi/decisions").json() == []
+
+
+def test_confirmed_promotion_without_a_receipt_maps_to_422(
+    client: TestClient, fake: FakeSuperset
+) -> None:
+    response = client.post(
+        PROMOTE_URL, json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com"}
+    )
+    assert response.status_code == 422
+    assert "human_lock_bears_receipt" in response.json()["detail"]
+    assert not fake.charts  # the human lock was never reached, let alone satisfied
+
+
+def test_tampered_receipt_maps_to_422_and_audits(
+    client: TestClient, env: dict[str, str], fake: FakeSuperset
+) -> None:
+    receipt = _valid_receipt(env, fake, actor="sam@cubiczan.com")
+    tampered = {**receipt, "actor": "someone.else"}
+    response = client.post(
+        PROMOTE_URL,
+        json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com", "approval_receipt": tampered},
+    )
+    assert response.status_code == 422
+    assert "receipt" in response.json()["detail"].lower()
+    assert not fake.charts
+    audit = client.get("/api/v1/genbi/audit").json()
+    assert audit[0]["outcome"] == "receipt_rejected"
+
+
+def test_contracts_endpoint_lists_enforced_rules(client: TestClient) -> None:
+    rules = client.get("/api/v1/genbi/contracts").json()
+    assert len(rules) > 0
+    assert all(rule["enforced"] == "true" for rule in rules)
+
+
+def test_approval_receipts_endpoint_lists_the_ledger(
+    client: TestClient, env: dict[str, str], fake: FakeSuperset
+) -> None:
+    assert client.get("/api/v1/genbi/approval-receipts").json() == []
+    receipt = _valid_receipt(env, fake, actor="sam@cubiczan.com")
+    client.post(
+        PROMOTE_URL,
+        json={**PROMOTE_PAYLOAD, "confirmed_by": "sam@cubiczan.com", "approval_receipt": receipt},
+    )
+    events = client.get("/api/v1/genbi/approval-receipts").json()
+    assert [event["event"] for event in events] == ["redeemed", "issued"]
+    assert events[0]["receipt_id"] == receipt["receipt_id"]

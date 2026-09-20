@@ -20,6 +20,7 @@ from __future__ import annotations
 from typing import Any
 
 from api.genbi.slugs import genbi_column_id, genbi_row_id
+from control_plane.badges import CACHE_KPI_MARKER, LIVE_KPI_MARKER, MOCK_KPI_MARKER
 
 BACKGROUND_TRANSPARENT = "BACKGROUND_TRANSPARENT"
 BACKGROUND_WHITE = "BACKGROUND_WHITE"
@@ -28,7 +29,10 @@ HEADER_ROW_ID = "ROW-GENBI-ASK-SAVE-HEADER"
 HEADER_MARKDOWN_ID = "MARKDOWN-GENBI-ASK-SAVE"
 HEADER_TEXT = (
     "### Ask → Save\n\nCharts below are promoted natural-language answers, saved "
-    "from GenBI with their governed SQL. Curated dealer KPI charts live above."
+    "from GenBI with their governed SQL. Curated dealer KPI charts live above.\n\n"
+    "Every KPI value on this surface carries a provenance badge: "
+    f"{LIVE_KPI_MARKER} computed at request time · {CACHE_KPI_MARKER} a cached real KPI · "
+    f"{MOCK_KPI_MARKER} a placeholder that is never presented as a real KPI."
 )
 
 

@@ -40,6 +40,13 @@ from typing import Any
 
 from chp import Verdict
 
+from api.contracts import (
+    STAGE_PRE_EXECUTE,
+    STAGE_PRE_PERSIST,
+    ContractSet,
+    ContractViolation,
+    compile_genbi_contracts,
+)
 from api.genbi import audit as audit_module
 from api.genbi.audit import AuditTrail
 from api.genbi.chp import ChpPromotionGate, ChpRejection
@@ -52,6 +59,13 @@ from api.genbi.guardrails import (
     execute_readonly,
 )
 from api.genbi.layout import append_chart_row, ensure_ask_save_header, ensure_root, fresh_layout
+from api.genbi.receipts import (
+    PROMOTION_TOOL,
+    ApprovalReceiptService,
+    ReceiptError,
+    promotion_args,
+    promotion_policy_version,
+)
 from api.genbi.slugs import dataset_table_name, genbi_row_id, question_hash, slug_for_question
 from api.genbi.superset import SupersetClient, SupersetError
 from api.genbi.viz import BackingSpec, VizSpec, chart_params
@@ -80,6 +94,8 @@ class PromotionService:
         coverage: CoverageQueue,
         executor: Callable[..., ExecutionResult] = execute_readonly,
         gate: ChpPromotionGate | None = None,
+        contracts: ContractSet | None = None,
+        receipts: ApprovalReceiptService | None = None,
     ) -> None:
         self.settings = settings
         self.superset = superset
@@ -87,6 +103,13 @@ class PromotionService:
         self.coverage = coverage
         self.executor = executor
         self.gate = gate if gate is not None else ChpPromotionGate(settings)
+        # Agent contracts: compiled fail-closed rules the runtime evaluates on
+        # every promote. A rule that cannot be enforced refuses to compile, so
+        # constructing the service with an unenforceable rule is impossible.
+        self.contracts = contracts if contracts is not None else compile_genbi_contracts()
+        self.receipts = (
+            receipts if receipts is not None else ApprovalReceiptService.from_settings(settings)
+        )
 
     # ------------------------------------------------------------ public API
     def promote(
@@ -97,8 +120,9 @@ class PromotionService:
         answer_date: dt.date | None = None,
         backing: BackingSpec | None = None,
         confirmed_by: str | None = None,
+        approval_receipt: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """CHP-gate, guardrail, execute, audit, then persist the answer as a chart."""
+        """Contract-check, CHP-gate, guardrail, execute, audit, then persist the answer."""
         if self.settings.superset_readonly_database_id is None:
             raise NotConfigured(
                 "GENBI_SUPERSET_READONLY_DATABASE_ID is not set — register the READ_ONLY "
@@ -106,6 +130,24 @@ class PromotionService:
             )
         question_hash_value = question_hash(question)
         answer_date = answer_date or dt.datetime.now(dt.UTC).date()
+
+        # Agent contracts — pre-execute stage, before anything else: the control
+        # surface's declared rules are evaluated against this exact request.
+        self._contract_guarded(
+            question,
+            question_hash_value,
+            sql,
+            lambda: self.contracts.enforce(
+                STAGE_PRE_EXECUTE,
+                {
+                    "settings": self.settings,
+                    "question": question,
+                    "sql": sql,
+                    "confirmed_by": confirmed_by,
+                    "approval_receipt": approval_receipt,
+                },
+            ),
+        )
 
         # CHP R0 — before the engine: an ill-posed request costs nothing.
         self._chp_guarded(
@@ -132,6 +174,7 @@ class PromotionService:
             )
             self._audit_chp(question, question_hash_value, sql, reason)
             raise ChpRejection(reason)
+        redemption = None
         if self.settings.chp_require_human_lock and not confirmed_by:
             reason = (
                 "CHP human lock: GENBI_CHP_REQUIRE_HUMAN_LOCK is set — every promotion"
@@ -140,6 +183,37 @@ class PromotionService:
             self._audit_chp(question, question_hash_value, sql, reason)
             raise ChpRejection(reason)
         if confirmed_by:
+            # A human approval is only as good as its binding: the receipt must
+            # cryptographically match this exact request (tool, normalized args,
+            # policy version, actor, expiry) and must not be a replay. Verified
+            # and redeemed atomically, before the human lock is applied.
+            try:
+                redemption = self.receipts.verify_and_redeem(
+                    approval_receipt,
+                    tool=PROMOTION_TOOL,
+                    args=promotion_args(
+                        question=question,
+                        sql=sql,
+                        answer_date=answer_date,
+                        backing=backing,
+                        viz=viz,
+                    ),
+                    policy_version=promotion_policy_version(self.settings),
+                    actor=confirmed_by,
+                )
+            except ReceiptError as exc:
+                self.audit.append(
+                    audit_module.AuditEntry(
+                        question=question,
+                        question_hash=question_hash_value,
+                        sql=sql,
+                        latency_ms=0,
+                        outcome=audit_module.RECEIPT_REJECTED,
+                        stage=audit_module.STAGE_CHP,
+                        detail=str(exc),
+                    )
+                )
+                raise ChpRejection(f"tool-approval receipt refused: {exc}") from exc
             self.gate.lock(decision, confirmed_by)
 
         with _question_mutex(question_hash_value):
@@ -168,6 +242,12 @@ class PromotionService:
             "foundation_score": record["foundation_score"],
             "confirmed_by": confirmed_by,
         }
+        if redemption is not None:
+            result["chp"]["approval_receipt"] = {
+                "receipt_id": redemption["receipt_id"],
+                "redeemed_at": redemption["redeemed_at"],
+                "expires_at": redemption["expires_at"],
+            }
         return result
 
     # ------------------------------------------------------------------- CHP
@@ -177,6 +257,23 @@ class PromotionService:
             return step()
         except ChpRejection as exc:
             self._audit_chp(question, question_hash_value, sql, exc.reason)
+            raise
+
+    def _contract_guarded(self, question: str, question_hash_value: str, sql: str, step):
+        """Run a contract stage; audit and re-raise any violation (fail closed)."""
+        try:
+            return step()
+        except ContractViolation as exc:
+            self.audit.append(
+                audit_module.AuditEntry(
+                    question=question,
+                    question_hash=question_hash_value,
+                    sql=sql,
+                    latency_ms=0,
+                    outcome=audit_module.CONTRACT_REJECTED,
+                    detail=str(exc),
+                )
+            )
             raise
 
     def _audit_chp(self, question: str, question_hash_value: str, sql: str, detail: str) -> None:
@@ -256,6 +353,15 @@ class PromotionService:
                 f"Superset database {database_id} is not the READ_ONLY analytics connection "
                 f"({sqlalchemy_uri or 'no uri'}) — refusing to persist against it."
             )
+        # Agent contracts — pre-persist stage: the declared persistence rule is
+        # evaluated against the server-verified target before any write.
+        self.contracts.enforce(
+            STAGE_PRE_PERSIST,
+            {
+                "read_only_target_verified": "access_mode=READ_ONLY" in sqlalchemy_uri,
+                "database_id": database_id,
+            },
+        )
 
         answer_date = answer_date or dt.datetime.now(dt.UTC).date()
         slug = slug_for_question(question, answer_date)

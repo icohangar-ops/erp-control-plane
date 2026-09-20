@@ -21,6 +21,8 @@ from pathlib import Path
 EXECUTED = "executed"
 GUARDRAIL_REJECTED = "guardrail_rejected"
 CHP_REJECTED = "chp_rejected"
+CONTRACT_REJECTED = "contract_rejected"
+RECEIPT_REJECTED = "receipt_rejected"
 PROMOTED = "promoted"
 UPDATED = "updated"
 SUPERSET_ERROR = "superset_error"

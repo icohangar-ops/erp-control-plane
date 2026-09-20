@@ -22,11 +22,13 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from api.contracts import ContractViolation
+from api.genbi import audit as audit_module
 from api.genbi.audit import AuditTrail
+from api.genbi.chp import ChpRejection
 from api.genbi.config import GenbiSettings, NotConfigured
 from api.genbi.coverage import CoverageQueue
 from api.genbi.guardrails import (
-    GuardrailError,
     NotReadOnlyUri,
     execute_readonly,
 )
@@ -39,6 +41,7 @@ from api.genbi.layout import (
     fresh_layout,
 )
 from api.genbi.promote import PromotionService
+from api.genbi.receipts import PROMOTION_TOOL, promotion_args, promotion_policy_version
 from api.genbi.slugs import dataset_table_name, genbi_row_id, slug_for_question
 from api.genbi.superset import SupersetClient, SupersetError
 from api.genbi.viz import MetricSpec, VizSpec, chart_params
@@ -273,6 +276,7 @@ def env(tmp_path: Path, analytics_file: Path) -> dict[str, str]:
         "GENBI_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
         "GENBI_COVERAGE_PATH": str(tmp_path / "coverage.jsonl"),
         "GENBI_CHP_DECISIONS_PATH": str(tmp_path / "chp_decisions.jsonl"),
+        "GENBI_APPROVAL_RECEIPTS_PATH": str(tmp_path / "approval_receipts.jsonl"),
     }
 
 
@@ -423,14 +427,16 @@ def test_guardrail_rejection_persists_nothing_and_is_audited(
     env: dict[str, str], fake: FakeSuperset
 ) -> None:
     service = make_service(env, fake)
-    with pytest.raises(GuardrailError):
+    # Contracts run before the engine: the select-only rule is enforced as a
+    # compiled contract, so a mutating statement is a contract rejection.
+    with pytest.raises(ContractViolation):
         service.promote(QUESTION, "delete from dealer_revenue", VIZ, answer_date=ANSWER_DATE)
 
     assert not fake.datasets and not fake.charts, "rejected answers must not persist"
     records = AuditTrail(GenbiSettings.from_env(env).audit_path).list()
     assert len(records) == 1
-    assert records[0]["outcome"] == "guardrail_rejected"
-    assert records[0]["detail"], "the audit record must carry the guardrail reason"
+    assert records[0]["outcome"] == audit_module.CONTRACT_REJECTED
+    assert records[0]["detail"], "the audit record must carry the refusal reason"
 
 
 def test_read_write_database_refused(env: dict[str, str], fake: FakeSuperset) -> None:
@@ -607,3 +613,87 @@ def test_empty_dashboard_layout_backfills_skeleton() -> None:
     layout: dict[str, Any] = {}
     append_chart_row(layout, question=QUESTION, chart_id=2, chart_uuid="u")
     assert_runbook_invariants(layout)
+
+
+# --- tool-approval receipts on the promotion path ([Gov] T2) ------------------
+
+
+def _receipt_for(service: PromotionService) -> dict[str, Any]:
+    """A valid receipt for the canonical QUESTION/SQL/VIZ promotion request."""
+    return service.receipts.sign(
+        tool=PROMOTION_TOOL,
+        actor="sam",
+        args=promotion_args(
+            question=QUESTION,
+            sql=SQL,
+            answer_date=ANSWER_DATE,
+            backing=None,
+            viz=VIZ,
+        ),
+        policy_version=promotion_policy_version(service.settings),
+    )
+
+
+def test_confirmed_promotion_without_a_receipt_is_refused(
+    env: dict[str, str], fake: FakeSuperset
+) -> None:
+    service = make_service(env, fake)
+    with pytest.raises(ContractViolation, match="human_lock_bears_receipt"):
+        service.promote(QUESTION, SQL, VIZ, answer_date=ANSWER_DATE, confirmed_by="sam")
+    # Nothing was persisted, and the refusal is audited.
+    assert not fake.datasets
+    records = AuditTrail(GenbiSettings.from_env(env).audit_path).list()
+    assert [r["outcome"] for r in records] == [audit_module.CONTRACT_REJECTED]
+
+
+def test_promotion_with_a_valid_receipt_redeems_it_and_locks(
+    env: dict[str, str], fake: FakeSuperset
+) -> None:
+    service = make_service(env, fake)
+    receipt = _receipt_for(service)
+    result = service.promote(
+        QUESTION, SQL, VIZ, answer_date=ANSWER_DATE, confirmed_by="sam", approval_receipt=receipt
+    )
+    assert result["chp"]["confirmed_by"] == "sam"
+    assert result["chp"]["approval_receipt"]["receipt_id"] == receipt["receipt_id"]
+    # The receipt ledger sits alongside the CHP decision ledger, with both events.
+    events = [event["event"] for event in service.receipts.records.list()]
+    assert events == ["redeemed", "issued"]
+
+
+def test_a_redeemed_receipt_cannot_approve_a_second_promotion(
+    env: dict[str, str], fake: FakeSuperset
+) -> None:
+    service = make_service(env, fake)
+    receipt = _receipt_for(service)
+    service.promote(
+        QUESTION, SQL, VIZ, answer_date=ANSWER_DATE, confirmed_by="sam", approval_receipt=receipt
+    )
+    with pytest.raises(ChpRejection, match="replay refused"):
+        service.promote(
+            QUESTION,
+            SQL,
+            VIZ,
+            answer_date=ANSWER_DATE,
+            confirmed_by="sam",
+            approval_receipt=receipt,
+        )
+    records = AuditTrail(GenbiSettings.from_env(env).audit_path).list()
+    assert records[0]["outcome"] == audit_module.RECEIPT_REJECTED
+
+
+def test_receipt_bound_to_different_sql_is_refused(env: dict[str, str], fake: FakeSuperset) -> None:
+    service = make_service(env, fake)
+    receipt = _receipt_for(service)
+    other_sql = f"{SQL} limit 2"
+    with pytest.raises(ChpRejection, match="ambiguous binding denied"):
+        service.promote(
+            QUESTION,
+            other_sql,
+            VIZ,
+            answer_date=ANSWER_DATE,
+            confirmed_by="sam",
+            approval_receipt=receipt,
+        )
+    # The approval never reached the human lock: nothing was persisted.
+    assert not fake.datasets

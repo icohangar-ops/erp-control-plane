@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -31,6 +32,8 @@ from test_genbi_promotion import ANSWER_DATE, QUESTION, SQL, VIZ, FakeSuperset, 
 from api.genbi.chp import ChpPromotionGate, ChpRejection
 from api.genbi.config import GenbiSettings
 from api.genbi.guardrails import ExecutionResult
+from api.genbi.promote import PromotionService
+from api.genbi.receipts import PROMOTION_TOOL, promotion_args, promotion_policy_version
 
 GOLDEN_QUESTION = "What is our total revenue?"
 GOLDEN_SQL = "select sum(revenue) as revenue from dealer_revenue"
@@ -82,6 +85,7 @@ def base_env(
         "GENBI_AUDIT_PATH": str(tmp_path / "audit.jsonl"),
         "GENBI_COVERAGE_PATH": str(tmp_path / "coverage.jsonl"),
         "GENBI_CHP_DECISIONS_PATH": str(tmp_path / "chp_decisions.jsonl"),
+        "GENBI_APPROVAL_RECEIPTS_PATH": str(tmp_path / "approval_receipts.jsonl"),
         "GENBI_GOLDEN_PATH": str(golden_path),
     }
     if require_lock:
@@ -95,6 +99,18 @@ def make_gate(env: dict[str, str]) -> ChpPromotionGate:
 
 def empty_executor(sql: str, **kwargs: object) -> ExecutionResult:
     return execution([])
+
+
+def promotion_receipt(service: PromotionService) -> dict[str, Any]:
+    """A valid receipt for the canonical promotion request, bound to CONFIRMER."""
+    return service.receipts.sign(
+        tool=PROMOTION_TOOL,
+        actor=CONFIRMER,
+        args=promotion_args(
+            question=QUESTION, sql=SQL, answer_date=ANSWER_DATE, backing=None, viz=VIZ
+        ),
+        policy_version=promotion_policy_version(service.settings),
+    )
 
 
 # ----------------------------------------------------------------------- R0
@@ -243,7 +259,14 @@ def test_promotion_is_provisional_without_a_confirmer(chp_env: dict[str, str]) -
 
 def test_a_named_confirmer_locks_the_decision(chp_env: dict[str, str]) -> None:
     service = make_service(chp_env, FakeSuperset())
-    result = service.promote(QUESTION, SQL, VIZ, answer_date=ANSWER_DATE, confirmed_by=CONFIRMER)
+    result = service.promote(
+        QUESTION,
+        SQL,
+        VIZ,
+        answer_date=ANSWER_DATE,
+        confirmed_by=CONFIRMER,
+        approval_receipt=promotion_receipt(service),
+    )
     assert result["chp"]["session_status"] == SessionStatus.LOCKED.value
     record = service.gate.records.list()[0]
     assert record["confirmed_by"] == CONFIRMER
@@ -266,7 +289,12 @@ def test_require_human_lock_refuses_unconfirmed_promotions(chp_env: dict[str, st
     assert service.gate.records.list() == []
 
     result = make_service(chp_env, FakeSuperset()).promote(
-        QUESTION, SQL, VIZ, answer_date=ANSWER_DATE, confirmed_by=CONFIRMER
+        QUESTION,
+        SQL,
+        VIZ,
+        answer_date=ANSWER_DATE,
+        confirmed_by=CONFIRMER,
+        approval_receipt=promotion_receipt(service),
     )
     assert result["chp"]["session_status"] == SessionStatus.LOCKED.value
 
