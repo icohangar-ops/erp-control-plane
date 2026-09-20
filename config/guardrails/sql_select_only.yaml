@@ -1,0 +1,63 @@
+# Guardrail fixture: SELECT-only SQL policy (GenBI NL -> SQL path).
+# The NL layer never runs its own SQL — validate_select_only is the policy
+# boundary. A change to that boundary must re-examine these verdicts in the
+# same PR, or CI (guardrail-fixtures job) fails.
+surface:
+  - api/genbi/guardrails.py
+function: validate_select_only
+must_pass:
+  - name: plain select
+    sql: "SELECT branch_code, SUM(revenue) AS revenue FROM dealer_revenue GROUP BY branch_code"
+  - name: cte query
+    sql: "WITH totals AS (SELECT SUM(revenue) AS t FROM invoice_totals) SELECT t FROM totals"
+  - name: line comments are stripped before validation
+    sql: "-- fetch revenue\nSELECT revenue FROM invoice_totals"
+  - name: block comment hiding nothing
+    sql: "SELECT /* hint */ revenue FROM invoice_totals"
+  - name: trailing semicolon is tolerated
+    sql: "SELECT 1;"
+  - name: column names containing forbidden substrings are not keywords
+    sql: "SELECT description, created_at FROM invoice_lines"
+must_block:
+  - name: insert
+    sql: "INSERT INTO invoice_totals VALUES (1)"
+    error: NotSelectOnly
+  - name: update
+    sql: "UPDATE invoice_totals SET revenue = 0"
+    error: NotSelectOnly
+  - name: delete
+    sql: "DELETE FROM invoice_totals"
+    error: NotSelectOnly
+  - name: drop table
+    sql: "DROP TABLE invoice_totals"
+    error: NotSelectOnly
+  - name: create table
+    sql: "CREATE TABLE x (a INT)"
+    error: NotSelectOnly
+  - name: attach engine
+    sql: "ATTACH 'other.duckdb' AS other"
+    error: NotSelectOnly
+  - name: pragma
+    sql: "PRAGMA enable_profiling"
+    error: NotSelectOnly
+  - name: copy out
+    sql: "COPY invoice_totals TO 'x.csv'"
+    error: NotSelectOnly
+  - name: set directive
+    sql: "SET memory_limit = '1GB'"
+    error: NotSelectOnly
+  - name: install extension
+    sql: "INSTALL httpfs"
+    error: NotSelectOnly
+  - name: multiple statements
+    sql: "SELECT 1; SELECT 2"
+    error: MultipleStatements
+  - name: comment-smuggled second statement
+    sql: "SELECT 1; -- ok\nDROP TABLE invoice_totals"
+    error: MultipleStatements
+  - name: write hidden behind a block comment still leaves a write statement
+    sql: "/* read only */ DELETE FROM invoice_totals"
+    error: NotSelectOnly
+  - name: empty statement
+    sql: "   "
+    error: NotSelectOnly

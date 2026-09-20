@@ -1,0 +1,34 @@
+# Guardrail fixture: CHP R0 promotion-gate question policy.
+# open_r0 is the pre-execution gate on the GenBI promotion prompt surface: it
+# refuses ill-posed (empty question/SQL) and non-analytical requests before the
+# engine sees them. A change to that gate must re-examine these verdicts in the
+# same PR, or CI (guardrail-fixtures job) fails.
+surface:
+  - api/genbi/chp.py
+function: ChpPromotionGate.open_r0
+must_pass:
+  - name: analytical revenue question
+    question: "What is our total revenue?"
+    sql: "select sum(revenue) as revenue from dealer_revenue"
+  - name: analytical breakdown question
+    question: "Show revenue by branch for the window"
+    sql: "SELECT branch_code, SUM(revenue) FROM dealer_revenue GROUP BY branch_code"
+  - name: inventory trend question
+    question: "How did inventory trend?"
+    sql: "SELECT date, SUM(qty) FROM inventory_snapshot GROUP BY date"
+must_block:
+  - name: empty question is not solvable
+    question: "   "
+    sql: "select 1"
+    error: ChpRejection
+    result: Solvable
+  - name: empty sql is not solvable
+    question: "What is revenue by branch?"
+    sql: "   "
+    error: ChpRejection
+    result: Solvable
+  - name: non-analytical greeting is not worth it
+    question: "hello there"
+    sql: "select 1"
+    error: ChpRejection
+    result: Worth_it

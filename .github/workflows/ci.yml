@@ -100,3 +100,19 @@ jobs:
           dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
       - name: Enforce metric registry (schema, manifest cross-check, measured populations)
         run: python -m analytics.metrics.check --dbt-dir dbt --duckdb data/analytics/analytics.duckdb
+
+  guardrail-fixtures:
+    # Guardrail fixture coupling gate ([Verticals] P5): a change to a
+    # prompt-bearing policy surface (GenBI guardrails, CHP gate) without a
+    # same-PR fixture update fails here — policy without fixtures rots.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Enforce guardrail fixture coupling (same-PR fixture updates)
+        run: python -m guardrail_fixtures.check --base="origin/${{ github.base_ref || 'main' }}"

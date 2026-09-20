@@ -40,6 +40,7 @@ import duckdb
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse
 
+from api.claims.routes import router as claims_router
 from api.genbi.routes import router as genbi_router
 from control_plane.badges import (
     MOCK_KPI_MARKER,
@@ -586,6 +587,7 @@ app = FastAPI(
 )
 
 app.include_router(genbi_router)
+app.include_router(claims_router)
 
 
 @app.get("/")

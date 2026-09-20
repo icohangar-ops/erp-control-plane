@@ -1,0 +1,28 @@
+# Guardrail fixture: READ_ONLY connection-URI policy (GenBI NL -> SQL path).
+# ensure_read_only_uri fails closed unless the URI is the canonical DuckDB
+# READ_ONLY form. A change to that boundary must re-examine these verdicts in
+# the same PR, or CI (guardrail-fixtures job) fails.
+surface:
+  - api/genbi/guardrails.py
+  - genbi/connection.py
+function: ensure_read_only_uri
+must_pass:
+  - name: canonical read-only uri
+    uri: "duckdb:///data/analytics/analytics.duckdb?access_mode=READ_ONLY"
+  - name: read-only uri with extra params
+    uri: "duckdb:///data/analytics/analytics.duckdb?access_mode=READ_ONLY&read_only=1"
+  - name: read-only uri with spaces in query
+    uri: "duckdb:///data/analytics/analytics.duckdb?access_mode = READ_ONLY"
+must_block:
+  - name: not duckdb
+    uri: "postgres://localhost/analytics"
+    error: NotReadOnlyUri
+  - name: duckdb without access mode
+    uri: "duckdb:///data/analytics/analytics.duckdb"
+    error: NotReadOnlyUri
+  - name: read_write mode
+    uri: "duckdb:///data/analytics/analytics.duckdb?access_mode=READ_WRITE"
+    error: NotReadOnlyUri
+  - name: empty query is not read-only
+    uri: "duckdb:///data/analytics/analytics.duckdb?"
+    error: NotReadOnlyUri
