@@ -38,7 +38,7 @@ from api.genbi.guardrails import (
     NotReadOnlyUri,
     execute_readonly,
 )
-from api.genbi.layout import append_chart_row, ensure_root, fresh_layout
+from api.genbi.layout import append_chart_row, ensure_ask_save_header, ensure_root, fresh_layout
 from api.genbi.slugs import dataset_table_name, genbi_row_id, question_hash, slug_for_question
 from api.genbi.superset import SupersetClient, SupersetError
 from api.genbi.viz import BackingSpec, VizSpec, chart_params
@@ -145,6 +145,15 @@ class PromotionService:
         # read-only analytics connection, verified server-side, before any write.
         database = self.superset.get_database(database_id)
         sqlalchemy_uri = str(database.get("sqlalchemy_uri", ""))
+        if "access_mode=READ_ONLY" not in sqlalchemy_uri and database.get("database_name"):
+            # Some Superset builds (4.1.1) hide sqlalchemy_uri on every read path.
+            # Re-assert the unchanged name — a no-op PUT — and verify the URI the
+            # server echoes back: the STORED value, not a client assumption. A
+            # connection that is genuinely writable still fails the check below.
+            updated = self.superset.update_database(
+                database_id, {"database_name": str(database["database_name"])}
+            )
+            sqlalchemy_uri = str(updated.get("sqlalchemy_uri", ""))
         if "access_mode=READ_ONLY" not in sqlalchemy_uri:
             raise NotReadOnlyUri(
                 f"Superset database {database_id} is not the READ_ONLY analytics connection "
@@ -187,6 +196,7 @@ class PromotionService:
         )
         layout = self.superset.get_positions(dashboard_id) or fresh_layout()
         ensure_root(layout)
+        ensure_ask_save_header(layout)  # idempotent; self-heals the markdown content keys
         append_chart_row(
             layout,
             question=question,

@@ -55,6 +55,16 @@ def ensure_root(layout: dict[str, Any]) -> dict[str, Any]:
 def ensure_ask_save_header(layout: dict[str, Any]) -> dict[str, Any]:
     """Idempotently place the markdown section header above the GenBI rows."""
     if HEADER_ROW_ID in layout:
+        # Self-heal: the markdown component reads meta.code on Superset 4.1.1
+        # (rendering falls back to its placeholder without it). Backfill the
+        # content keys when an older layout omitted them; never overwrite
+        # content a user has since edited.
+        node = layout.get(HEADER_MARKDOWN_ID)
+        if isinstance(node, dict):
+            node.setdefault("data", HEADER_TEXT)
+            meta = node.setdefault("meta", {})
+            meta.setdefault("code", HEADER_TEXT)
+            meta.setdefault("text", HEADER_TEXT)
         return layout
     layout[HEADER_ROW_ID] = {
         "type": "ROW",
@@ -74,6 +84,7 @@ def ensure_ask_save_header(layout: dict[str, Any]) -> dict[str, Any]:
             "width": 16,
             "height": 3,
             "text": HEADER_TEXT,
+            "code": HEADER_TEXT,  # Superset 4.1.1's Markdown component reads meta.code
         },
     }
     return layout

@@ -31,7 +31,9 @@ from api.genbi.guardrails import (
     execute_readonly,
 )
 from api.genbi.layout import (
+    HEADER_MARKDOWN_ID,
     HEADER_ROW_ID,
+    HEADER_TEXT,
     append_chart_row,
     ensure_ask_save_header,
     fresh_layout,
@@ -70,6 +72,14 @@ class FakeSuperset:
                 "database_name": "GenBI analytics (read-write!)",
                 "sqlalchemy_uri": self.RW_URI,
             },
+            # Superset 4.1.1 hides sqlalchemy_uri on read paths; the stored
+            # value is still the READ_ONLY connection.
+            3: {
+                "id": 3,
+                "database_name": "GenBI analytics (READ ONLY, hidden uri)",
+                "sqlalchemy_uri": self.READONLY_URI,
+                "hidden_uri": True,
+            },
         }
         self.datasets: dict[str, dict[str, Any]] = {}  # by table_name
         self.charts: dict[str, dict[str, Any]] = {}  # by slice_name
@@ -87,12 +97,27 @@ class FakeSuperset:
             return httpx.Response(200, json={"access_token": "test-token"})
         if method == "GET" and path == "/api/v1/security/csrf_token/":
             return httpx.Response(200, json={"result": "test-csrf"})
+        if method == "GET" and path == "/api/v1/database/":
+            return httpx.Response(200, json={"result": []})  # list: no rows needed
         if method == "GET" and path.startswith("/api/v1/database/"):
             database_id = int(path.rsplit("/", 1)[1])
             database = self.databases.get(database_id)
             if database is None:
                 return httpx.Response(404, json={"message": "not found"})
+            if database.get("hidden_uri"):
+                visible = {k: v for k, v in database.items() if k != "sqlalchemy_uri"}
+                return httpx.Response(200, json={"result": visible})
             return httpx.Response(200, json={"result": database})
+        if method == "PUT" and path.startswith("/api/v1/database/"):
+            # Real Superset echoes the STORED fields (incl. the URI) on update.
+            database_id = int(path.rsplit("/", 1)[1])
+            database = self.databases.get(database_id)
+            if database is None:
+                return httpx.Response(404, json={"message": "not found"})
+            with self.lock:
+                self.counts["database_put"] += 1
+            payload = json.loads(request.content)
+            return httpx.Response(200, json={"id": database_id, "result": {**database, **payload}})
         if path == "/api/v1/dataset/":
             return self._dataset_route(request, method)
         if path == "/api/v1/chart/" or path.startswith("/api/v1/chart/"):
@@ -120,8 +145,13 @@ class FakeSuperset:
         payload = json.loads(request.content)
         with self.lock:
             self.counts["dataset_post"] += 1
-            if payload["database"] != 1:
-                return httpx.Response(400, json={"message": "fake: dataset must use database 1"})
+            database = self.databases.get(payload["database"])
+            if database is None or "access_mode=READ_ONLY" not in str(
+                database.get("sqlalchemy_uri", "")
+            ):
+                return httpx.Response(
+                    400, json={"message": "fake: dataset must use the READ_ONLY database"}
+                )
             dataset_id = self.next_id
             self.next_id += 1
             self.datasets[payload["table_name"]] = {
@@ -410,6 +440,30 @@ def test_read_write_database_refused(env: dict[str, str], fake: FakeSuperset) ->
     assert not fake.datasets and not fake.charts, "loop must fail closed on a RW database"
 
 
+def test_hidden_uri_verified_via_noop_put_readback(env: dict[str, str], fake: FakeSuperset) -> None:
+    """Superset 4.1.1 hides sqlalchemy_uri on read paths (spec §4.2.6).
+
+    The gate must verify the STORED URI server-side — via the no-op PUT echo —
+    instead of trusting the client. A writable connection still fails after the
+    read-back, so the governance floor holds on every Superset build.
+    """
+    env = {**env, "GENBI_SUPERSET_READONLY_DATABASE_ID": "3"}
+    service = make_service(env, fake)
+    result = service.promote(QUESTION, SQL, VIZ, answer_date=ANSWER_DATE)
+    assert fake.counts["database_put"] == 1, "the hidden URI must be read back via PUT"
+    assert result["chart_id"], "the read-back must let promotion complete"
+    assert fake.datasets and fake.charts
+
+
+def test_hidden_rw_uri_still_refused(env: dict[str, str], fake: FakeSuperset) -> None:
+    env = {**env, "GENBI_SUPERSET_READONLY_DATABASE_ID": "2"}
+    service = make_service(env, fake)
+    fake.databases[2]["hidden_uri"] = True  # hide the RW URI exactly like 4.1.1 does
+    with pytest.raises(NotReadOnlyUri):
+        service.promote(QUESTION, SQL, VIZ, answer_date=ANSWER_DATE)
+    assert not fake.datasets and not fake.charts, "read-back must expose the RW uri, not skip it"
+
+
 def test_unconfigured_database_id_fails_before_execution(
     env: dict[str, str], fake: FakeSuperset
 ) -> None:
@@ -514,6 +568,31 @@ def test_header_is_idempotent() -> None:
     ensure_ask_save_header(layout)
     ensure_ask_save_header(layout)
     assert grid_children(layout) == [HEADER_ROW_ID]
+
+
+def test_header_self_heals_markdown_content_keys() -> None:
+    """Layouts written before the meta.code fix render a placeholder header.
+
+    Re-running ensure_ask_save_header must backfill the content keys the
+    Superset 4.1.1 Markdown component reads (meta.code) without duplicating
+    the header row or overwriting user-edited content.
+    """
+    stale = fresh_layout()
+    ensure_ask_save_header(stale)
+    del stale[HEADER_MARKDOWN_ID]["meta"]["code"]  # pre-fix layout shape
+    stale[HEADER_MARKDOWN_ID]["meta"].pop("text", None)
+
+    ensure_ask_save_header(stale)
+    meta = stale[HEADER_MARKDOWN_ID]["meta"]
+    assert meta["code"] == HEADER_TEXT
+    assert meta["text"] == HEADER_TEXT
+    assert grid_children(stale) == [HEADER_ROW_ID]
+
+    edited = fresh_layout()
+    ensure_ask_save_header(edited)
+    edited[HEADER_MARKDOWN_ID]["meta"]["code"] = "### custom"
+    ensure_ask_save_header(edited)
+    assert edited[HEADER_MARKDOWN_ID]["meta"]["code"] == "### custom"
 
 
 def test_chart_row_is_idempotent() -> None:
