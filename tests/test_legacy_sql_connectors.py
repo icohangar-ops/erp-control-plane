@@ -16,7 +16,7 @@ import pyarrow.parquet as pq
 import pytest
 import yaml
 
-from connectors.base import ConnectorError, DeleteSemantics, ExtractionMode
+from connectors.base import ConnectorError, ConnectorNotConfigured, DeleteSemantics, ExtractionMode
 from connectors.csv_sftp.connector import CsvSftpConnector
 from connectors.legacy.db2_iseries import Db2ISeriesConnector
 from connectors.legacy.db2_iseries.cdc import DB2_ISERIES_CDC
@@ -29,6 +29,7 @@ from connectors.legacy.openedge.cdc import OPENEDGE_CDC
 from connectors.legacy.oracle import OracleConnector
 from connectors.legacy.oracle.cdc import ORACLE_CDC
 from connectors.legacy.postgresql import PostgresConnector
+from connectors.legacy.sap_hana import SapHanaConnector
 from connectors.legacy.schemas import (
     CANONICAL_ENTITY_COLUMNS,
     NATURAL_KEY_FIELDS,
@@ -46,6 +47,7 @@ from tests.fixtures.fake_dbapi import FakeDbApiConnection
 from tests.fixtures.legacy_rows import canonical_row, result_set
 
 #: One connector class per legacy spec row (MariaDB shares MySQL's row).
+#: SAP HANA joins the pack as the 15-class matrix's batch SQL row.
 LEGACY_CLASSES: tuple[type[DbApiBatchConnector], ...] = (
     InformixConnector,
     Db2LuwConnector,
@@ -54,6 +56,7 @@ LEGACY_CLASSES: tuple[type[DbApiBatchConnector], ...] = (
     PostgresConnector,
     SybaseAseConnector,
     OpenEdgeConnector,
+    SapHanaConnector,
 )
 
 
@@ -374,3 +377,60 @@ def test_cdc_modules_document_the_binding_corrections() -> None:
 def test_sybase_ase_has_no_cdc_module() -> None:
     with pytest.raises(ModuleNotFoundError):
         importlib.import_module("connectors.legacy.sybase_ase.cdc")
+
+
+# ---------------------------------------------------------------------------
+# SAP HANA (SAP Business One on HANA) — sqlalchemy-hana / hdbcli posture
+# ---------------------------------------------------------------------------
+
+
+def test_sap_hana_qualifies_the_settings_schema(tmp_path: Path) -> None:
+    """db_schema prefixes every SQL path — SELECT and key scan alike."""
+    harness = Harness(tmp_path, SapHanaConnector)
+    rows = [canonical_row("items", 1)]
+    conn = FakeDbApiConnection([result_set("items", rows), (["item_no"], [("ITEM-0001",)])])
+    base = harness.connector(conn)
+    source = replace(base.source, settings={**base.source.settings, "db_schema": "B1SCHEMA"})
+    scoped = SapHanaConnector(
+        source, harness.store, harness.config, connection_factory=lambda settings: conn
+    )
+
+    result = scoped.extract("items")
+    scoped.source_key_inventory("items")
+
+    sql, _params = conn.executed[0]
+    assert " FROM B1SCHEMA.b1_items" in sql
+    key_scan_sql = conn.executed[-1][0]
+    assert " FROM B1SCHEMA.b1_items" in key_scan_sql
+    assert result.rows_extracted == 1
+
+
+def test_sap_hana_rejects_invalid_schema_identifiers(tmp_path: Path) -> None:
+    harness = Harness(tmp_path, SapHanaConnector)
+    conn = FakeDbApiConnection([])
+    base = harness.connector(conn)
+    source = replace(base.source, settings={"db_schema": 'x"; DROP TABLE'})
+    scoped = SapHanaConnector(
+        source, harness.store, harness.config, connection_factory=lambda settings: conn
+    )
+
+    with pytest.raises(ConnectorError, match="identifier"):
+        scoped.extract("items")
+
+
+def test_sap_hana_default_factory_requires_the_hana_dialect(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """sqlalchemy-hana/hdbcli are site-provided extras — absence fails loudly, lazily."""
+    import sys
+
+    monkeypatch.setitem(sys.modules, "sqlalchemy_hana", None)
+    factory = SapHanaConnector._build_default_connection_factory()
+    with pytest.raises(ConnectorNotConfigured, match="sqlalchemy-hana"):
+        factory({"db_host": "hana.fixture", "db_port": "39015", "db_user": "u", "db_password": "p"})
+
+
+def test_sap_hana_has_no_cdc_module() -> None:
+    """Batch-only per spec §6: no CDC path verified this session."""
+    with pytest.raises(ModuleNotFoundError):
+        importlib.import_module("connectors.legacy.sap_hana.cdc")

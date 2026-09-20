@@ -17,6 +17,7 @@ import yaml
 
 from connectors.base import BaseConnector, ConnectorError
 from connectors.bistrack.connector import BisTrackConnector
+from connectors.cloud_erp_rest.connector import CloudErpRestConnector
 from connectors.csv_sftp import CsvSftpConnector
 from connectors.d365_bc.connector import DynamicsBcConnector
 from connectors.dmsi_agility.connector import DmsiAgilityConnector
@@ -30,6 +31,7 @@ from connectors.legacy.mysql import MariaDbConnector, MySqlConnector
 from connectors.legacy.openedge import OpenEdgeConnector
 from connectors.legacy.oracle import OracleConnector
 from connectors.legacy.postgresql import PostgresConnector
+from connectors.legacy.sap_hana import SapHanaConnector
 from connectors.legacy.sqlserver import SqlServerConnector
 from connectors.legacy.sybase_ase import SybaseAseConnector
 from connectors.netsuite.connector import NetsuiteConnector
@@ -49,6 +51,7 @@ CONNECTOR_CLASSES: dict[str, type[BaseConnector]] = {
     EpicorEclipseConnector.erp_id: EpicorEclipseConnector,
     EciSpruceConnector.erp_id: EciSpruceConnector,
     DynamicsBcConnector.erp_id: DynamicsBcConnector,
+    CloudErpRestConnector.erp_id: CloudErpRestConnector,
     InformixConnector.erp_id: InformixConnector,
     Db2LuwConnector.erp_id: Db2LuwConnector,
     Db2ISeriesConnector.erp_id: Db2ISeriesConnector,
@@ -59,6 +62,7 @@ CONNECTOR_CLASSES: dict[str, type[BaseConnector]] = {
     MariaDbConnector.erp_id: MariaDbConnector,
     SybaseAseConnector.erp_id: SybaseAseConnector,
     OpenEdgeConnector.erp_id: OpenEdgeConnector,
+    SapHanaConnector.erp_id: SapHanaConnector,
 }
 
 SOURCES_YML = Path(__file__).with_name("sources.yml")

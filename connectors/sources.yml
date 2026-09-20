@@ -148,6 +148,31 @@ sources:
       company_id: ${D365BC_COMPANY_ID:-}
       api_version: ${D365BC_API_VERSION:-v2.0}
 
+  - source_id: cloud_erp_rest_template
+    erp: cloud_erp_rest
+    description: >
+      Cloud ERP REST (Plex / Dynamics 365) — per-tenant profiles over the dlt
+      rest_api verified-source approach: API-key or OAuth2 client-credentials
+      auth, explicit pagination (Plex page/pageSize, OData @odata.nextLink),
+      and modified-timestamp watermarks. No delete feeds on these APIs —
+      the scheduled full-key anti-join reconciles deletes. Resource paths and
+      field maps validate against tenant API metadata at onboarding.
+    enabled: false
+    settings:
+      provider: ${CLOUD_ERP_PROVIDER:-}
+      base_url: ${CLOUD_ERP_BASE_URL:-}
+      auth_mode: ${CLOUD_ERP_AUTH_MODE:-}
+      api_key: ${CLOUD_ERP_API_KEY:-}
+      api_key_header: ${CLOUD_ERP_API_KEY_HEADER:-}
+      token_url: ${CLOUD_ERP_TOKEN_URL:-}
+      scope: ${CLOUD_ERP_OAUTH_SCOPE:-}
+      client_id: ${CLOUD_ERP_CLIENT_ID:-}
+      client_secret: ${CLOUD_ERP_CLIENT_SECRET:-}
+      tenant_id: ${CLOUD_ERP_AAD_TENANT_ID:-}
+      watermark_field: ${CLOUD_ERP_WATERMARK_FIELD:-}
+      incremental_query: ${CLOUD_ERP_INCREMENTAL_QUERY:-}
+      page_size: ${CLOUD_ERP_PAGE_SIZE:-}
+
   # ------------------------------------------------------------------
   # Legacy database connector pack (spec §5 rows 1–9). Every class shares the
   # DB-API batch extraction path with anti-join delete reconciliation; CDC is
@@ -276,3 +301,20 @@ sources:
       odbc_dsn: ${OPENEDGE_ODBC_DSN:-}
       db_user: ${OPENEDGE_DB_USER:-}
       db_password: ${OPENEDGE_DB_PASSWORD:-}
+
+  - source_id: sap_hana_template
+    erp: sap_hana
+    description: >
+      SAP HANA (SAP Business One on HANA) — SQLAlchemy hana:// engine
+      (sqlalchemy-hana dialect, hdbcli client) with dlt sql_database batch
+      semantics over DBA-maintained staging views exposed to a read-only
+      extraction user. Instance ports follow the 3NN15 convention (instance
+      90 -> 39015). Batch-only per spec §6: no CDC path verified; deletes
+      reconcile via the scheduled full-key anti-join.
+    enabled: false
+    settings:
+      db_host: ${SAP_HANA_DB_HOST:-}
+      db_port: ${SAP_HANA_DB_PORT:-39015}
+      db_schema: ${SAP_HANA_DB_SCHEMA:-}
+      db_user: ${SAP_HANA_DB_USER:-}
+      db_password: ${SAP_HANA_DB_PASSWORD:-}
