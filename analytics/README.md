@@ -4,7 +4,7 @@ Apache Superset runs behind the optional Compose profile (`docker compose --prof
 and is intentionally out of the light 10-minute demo path.
 
 ## Contents
-- `headline_kpis.sql` — single-row executive tile dataset (all 20 KPIs).
+- `headline_kpis.sql` — single-row executive tile dataset (all 21 KPIs).
 - `service_levels_by_branch.sql` — fill-rate chart by branch.
 - `inventory_efficiency_by_category.sql` — GMROI / turns by category.
 
