@@ -821,6 +821,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
             {
                 "item_id": "ITEM-0002",
@@ -828,6 +829,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
         ]
     }
@@ -839,6 +841,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
         ]
     }
@@ -851,6 +854,111 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
     result = connector.reconcile_deletes("items")
 
     assert result.tombstoned_keys == ("ITEM-0001",)
+    assert dict(calls[0].url.params)["$filter"] == "delete_flag eq 'N'"  # live keys only
+
+
+def test_p21_soft_deleted_rows_are_filtered_from_staging(tmp_path: Path) -> None:
+    """Spec §3 cross-cutting quirk + §6.4: delete_flag='Y' rows are filtered
+    server-side (the $filter carries the active value) and dropped client-side
+    in both staging and the key scan — a soft-delete-heavy site (297 of 300
+    sampled price_page rows deleted on one tenant) stages no stale rows, and
+    the anti-join compares live-to-live instead of mass-tombstoning."""
+    connector = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    page = {
+        "value": [
+            {"item_id": "ITEM-0001", "delete_flag": "N"},
+            {"item_id": "ITEM-0002", "delete_flag": "Y"},  # soft-deleted at the source
+        ]
+    }
+    live_after = {"value": [{"item_id": "ITEM-0001", "delete_flag": "N"}]}
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response(page), _json_response(live_after)]}, calls)
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1  # the soft-deleted row never staged
+    assert dict(calls[0].url.params)["$filter"] == "delete_flag eq 'N'"
+    assert pq.read_table(result.parquet_path).column("source_id").to_pylist() == ["ITEM-0001"]
+
+    reconciliation = connector.reconcile_deletes("items")
+    assert reconciliation.tombstoned_keys == ()  # ITEM-0001 is live — no mass tombstone
+
+
+def test_p21_soft_deleted_rows_are_eligible_for_tombstones(tmp_path: Path) -> None:
+    """A row soft-deleted AFTER it was staged is gone from the live key set —
+    the anti-join tombstones it like a hard delete (spec §6.4)."""
+    connector = _p21_with_seeded_token(tmp_path)
+    first = {
+        "value": [
+            {"item_id": "ITEM-0001", "delete_flag": "N"},
+            {"item_id": "ITEM-0002", "delete_flag": "N"},
+        ]
+    }
+    remaining = {
+        "value": [
+            {"item_id": "ITEM-0002", "delete_flag": "N"},
+            {"item_id": "ITEM-0001", "delete_flag": "Y"},  # soft-deleted since staging
+        ]
+    }
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response(first), _json_response(remaining)]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    connector.extract("items")
+    result = connector.reconcile_deletes("items")
+
+    assert result.tombstoned_keys == ("ITEM-0001",)
+
+
+def test_p21_incremental_restart_is_a_no_op(tmp_path: Path) -> None:
+    """Rerunning incremental at the stored watermark re-extracts nothing and
+    leaves the watermark pinned (csv_sftp idempotency precedent)."""
+    first = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/inv_mast": [
+                    _json_response(
+                        {
+                            "value": [
+                                {
+                                    "item_id": "ITEM-0001",
+                                    "delete_flag": "N",
+                                    "date_last_modified": "2026-08-01T10:00:00",
+                                }
+                            ]
+                        }
+                    )
+                ]
+            },
+            [],
+        )
+    )
+    first._http_client = httpx.Client(transport=transport)
+
+    result = first.extract("items", ExtractionMode.INCREMENTAL)
+    assert result.rows_extracted == 1
+    assert result.watermark_after == "2026-08-01T10:00:00"
+
+    # Same tmp store: the rerun inherits the persisted checkpoint.
+    second = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    transport_2 = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response({"value": []})]}, calls)
+    )
+    second._http_client = httpx.Client(transport=transport_2)
+
+    result_2 = second.extract("items", ExtractionMode.INCREMENTAL)
+
+    assert result_2.rows_extracted == 0
+    assert result_2.watermark_after == "2026-08-01T10:00:00"
+    assert dict(calls[0].url.params)["$filter"] == (
+        "date_last_modified gt 2026-08-01T10:00:00 and delete_flag eq 'N'"
+    )
 
 
 def test_p21_dry_run_without_network(tmp_path: Path) -> None:

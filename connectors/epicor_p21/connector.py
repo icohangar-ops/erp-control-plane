@@ -6,7 +6,9 @@ defensively parsed because some middleware answers XML even when JSON is
 requested, cached until near expiry because tokens live ~24 h and the token
 endpoint throttles re-minting — explicit ``$top`` paging — P21 does not emit
 OData continuation links, so this connector pages with ``$top`` + ``$skip`` and
-ALWAYS sets ``$top`` per the documented behavior — watermark on
+ALWAYS sets ``$top`` per the documented behavior — soft-delete flags filtered
+server-side and client-side so a soft-delete-heavy site cannot mass-tombstone
+(spec §6.4) — watermark on
 ``date_last_modified``) but NOT exercised against a live tenant: no fabricated
 API behavior ships as tested. Validate entity-set names and field maps against
 the tenant's ``$metadata`` at onboarding; ``plan --source <id>`` (dry-run)
@@ -34,6 +36,7 @@ import json
 import time
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
+from dataclasses import dataclass
 from typing import ClassVar
 
 import httpx
@@ -134,6 +137,41 @@ _HEADER_CONTEXT: dict[str, dict[str, str]] = {
 }
 
 
+@dataclass(frozen=True)
+class SoftDelete:
+    """A table's soft-delete flag (spec §3 cross-cutting quirk: per-table and
+    inconsistent). ``deleted_value`` marks a soft-deleted row; the extraction
+    predicate filters the active value server-side, and both extraction and
+    the key-inventory scan drop ``deleted_value`` rows client-side so the
+    anti-join compares live-to-live."""
+
+    column: str
+    deleted_value: str
+    active_value: str
+
+
+#: Only tables the spec documents with a soft-delete flag get a filter — a
+#: filter on a column a table does not have 404s the whole request (spec §3).
+#: The row_status_flag tables (price_page, customer_salesrep) are not in this
+#: connector's entity set.
+_SOFT_DELETE: dict[str, SoftDelete] = {
+    "items": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+    "customers": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+    "vendors": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+}
+
+
+def _is_soft_deleted(soft: SoftDelete | None, row: dict[str, object]) -> bool:
+    """True only on an EXPLICIT deleted flag — a missing/None column means the
+    flag is absent on this tenant, not that the row is dead.
+
+    Polarity per the spec's operative §6.4/§7 semantics ('Y' = deleted); §3.1's
+    "Y = active" parenthetical contradicts them, so per-site verification at
+    onboarding is mandatory before trusting tombstones.
+    """
+    return soft is not None and row.get(soft.column) == soft.deleted_value
+
+
 def _parse_token_payload(text: str) -> tuple[str, float]:
     """Parse ``(AccessToken, lifetime_seconds)`` from a token-endpoint response.
 
@@ -184,10 +222,15 @@ class EpicorP21Connector(BaseConnector):
         "continuation links — $top is always set), middleware token auth "
         "(POST /api/security/token/v2 with JSON credentials; tokens live ~24 h, "
         "are cached until near expiry, and one 401 triggers a single "
-        "re-mint-and-retry), and watermark on date_last_modified (spec §5). Not "
-        "yet exercised against a live tenant; validate entity sets and field "
-        "maps against $metadata at onboarding. On-prem P21 should use the SQL "
-        "Server connector against a read-only replica instead."
+        "re-mint-and-retry), soft-delete flags filtered server-side "
+        "(delete_flag eq 'N' on the tables the spec documents it for) and "
+        "client-side in both extraction and the key-inventory scan so a "
+        "soft-delete-heavy site cannot mass-tombstone (polarity follows the "
+        "spec's operative §6.4/§7 semantics — 'Y' = deleted — per-site "
+        "verified at onboarding), and watermark on date_last_modified. Not yet "
+        "exercised against a live tenant; validate entity sets, field maps, "
+        "and flag polarity against $metadata at onboarding. On-prem P21 should "
+        "use the SQL Server connector against a read-only replica instead."
     )
     natural_key_fields: ClassVar[dict[str, tuple[str, ...]]] = {
         "items": ("item_no",),
@@ -255,9 +298,12 @@ class EpicorP21Connector(BaseConnector):
         self._require_config()
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
+        soft = _SOFT_DELETE.get(entity)
         if not spec.get("lines_table"):
             snapshot_date = self.source.settings.get("as_of_date") or dt.date.today().isoformat()
             for row in self._paged(entity, spec["table"], mode, watermark):
+                if _is_soft_deleted(soft, row):
+                    continue
                 # inv_loc is a live balance table; the nightly snapshot date is
                 # assigned at extraction time (documented in the module notes).
                 record = {canon: row.get(source) for canon, source in field_map.items()}
@@ -267,6 +313,8 @@ class EpicorP21Connector(BaseConnector):
             return
         context_map = _HEADER_CONTEXT[entity]
         for header in self._paged(entity, spec["table"], mode, watermark):
+            if _is_soft_deleted(soft, header):
+                continue  # a soft-deleted header's lines are never fetched
             fk_value = header.get(spec["fk"])
             if fk_value is None:
                 continue
@@ -291,6 +339,7 @@ class EpicorP21Connector(BaseConnector):
         key_fields = self.natural_key_fields[entity]
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
+        soft = _SOFT_DELETE.get(entity)
         if spec.get("lines_table"):
             return {
                 natural_id_for(key_fields, record)
@@ -298,6 +347,8 @@ class EpicorP21Connector(BaseConnector):
             }
         keys: set[str] = set()
         for row in self._paged(entity, spec["table"], None, None):
+            if _is_soft_deleted(soft, row):
+                continue
             keys.add(
                 natural_id_for(
                     key_fields,
@@ -320,8 +371,14 @@ class EpicorP21Connector(BaseConnector):
     def _paged(self, entity: str, table: str, mode: ExtractionMode | None, watermark: str | None):
         """Yield rows across explicit $top/$skip pages (P21 has no nextLink)."""
         params: dict[str, str] = {"$top": str(self.PAGE_SIZE)}
+        filters: list[str] = []
         if mode is ExtractionMode.INCREMENTAL and watermark:
-            params["$filter"] = f"date_last_modified gt {watermark}"
+            filters.append(f"date_last_modified gt {watermark}")
+        soft = _SOFT_DELETE.get(entity)
+        if soft is not None:
+            filters.append(f"{soft.column} eq '{soft.active_value}'")
+        if filters:
+            params["$filter"] = " and ".join(filters)
         offset = 0
         while True:
             page_params = dict(params, **{"$skip": str(offset)})
