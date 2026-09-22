@@ -33,8 +33,9 @@ dealer ERPs ──connector──▶ Parquet lake (staging, provenance-stamped)
 
 - **Working end to end:** `csv_sftp` (manifest-gated, checksum, quarantine,
   idempotent) — exercised by tests and the demo.
-- **Coded, credential-gated:** `netsuite` (SuiteQL/TBA) — `--dry-run` only;
-  never exercised against a live tenant.
+- **Coded, credential-gated:** D365 BC (API v2.0 / OData v4), Epicor P21
+  (OData v4 Data Services), `netsuite` (SuiteQL/TBA) — fixture-tested in CI;
+  `--dry-run` only, never exercised against a live tenant.
 - **Documented skeletons:** BisTrack (ODBC + Smart View API), DMSi Agility,
-  Epicor P21, Epicor Eclipse, ECI Spruce/RockSolid MAX, D365 BC.
+  Epicor Eclipse, ECI Spruce/RockSolid MAX.
   No invented API behavior — each states its extraction surface and TODOs.
