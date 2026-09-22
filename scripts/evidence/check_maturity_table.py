@@ -4,8 +4,10 @@
 Backs the ``evidence/matrix.yaml`` row claiming the README maturity table does
 not drift from the tree: a connector implemented as a real class (its module
 never references ``SkeletonConnector``) must be marked working/coded, and a
-documented skeleton must be marked as one. Stdlib-only, offline; exit 0 =
-verified, exit 1 = refused.
+documented skeleton must be marked as one. A mixed-mode row (a coded connector
+that also ships a plan-only mode) may scope the word "skeleton" only when a
+``ConnectorNotImplemented``-raising module actually backs that claim.
+Stdlib-only, offline; exit 0 = verified, exit 1 = refused.
 """
 
 from __future__ import annotations
@@ -22,6 +24,7 @@ ERP_TO_CONNECTOR_DIR = {
     "Epicor Eclipse": "epicor_eclipse",
     "ECI Spruce / RockSolid MAX": "eci_spruce",
     "Dynamics 365 BC": "d365_bc",
+    "IBM Informix (primary database connector)": "legacy/informix",
 }
 SKELETON_MARKER = "SkeletonConnector"
 SKELETON_STATUS = "📝"
@@ -43,10 +46,20 @@ def parse_maturity_rows(readme: str) -> dict[str, str]:
     return rows
 
 
-def connector_is_skeleton(connectors_dir: Path, connector: str) -> bool:
-    """True when any Python module in the connector package is a skeleton."""
+def impl_modules(connectors_dir: Path, connector: str) -> list[Path]:
+    """Python modules of the connector package, excluding package inits."""
     package = connectors_dir / connector
-    return any(SKELETON_MARKER in py.read_text(encoding="utf-8") for py in package.glob("*.py"))
+    return [p for p in sorted(package.glob("*.py")) if p.name != "__init__.py"]
+
+
+def module_is_skeleton(module: Path) -> bool:
+    """True when the module is a placeholder that stops at the skeleton class."""
+    return SKELETON_MARKER in module.read_text(encoding="utf-8")
+
+
+def module_refuses(module: Path) -> bool:
+    """True when the module documents a plan-only mode via ConnectorNotImplemented."""
+    return "ConnectorNotImplemented" in module.read_text(encoding="utf-8")
 
 
 def main() -> int:
@@ -63,17 +76,32 @@ def main() -> int:
     failures: list[str] = []
     for erp, status in sorted(rows.items()):
         connector = ERP_TO_CONNECTOR_DIR[erp]
-        is_skeleton = connector_is_skeleton(root / "connectors", connector)
-        if is_skeleton and SKELETON_STATUS not in status:
-            failures.append(
-                f"{erp}: implemented as {SKELETON_MARKER} but README status is {status!r}"
-            )
-        if not is_skeleton:
+        modules = impl_modules(root / "connectors", connector)
+        if not modules:
+            failures.append(f"{erp}: no connector modules found under {connector}")
+            continue
+        coded_modules = [m for m in modules if not module_is_skeleton(m)]
+        refuses = any(module_refuses(m) for m in modules)
+        if not coded_modules:
+            # Pure skeleton: every implementation module is a placeholder.
+            if SKELETON_STATUS not in status:
+                failures.append(
+                    f"{erp}: implemented as {SKELETON_MARKER} but README status is {status!r}"
+                )
+            if any(mark in status for mark in CODED_STATUS):
+                failures.append(
+                    f"{erp}: skeleton connector but README status claims coded: {status!r}"
+                )
+        else:
+            # At least one real extraction module ships.
             if not any(mark in status for mark in CODED_STATUS):
                 failures.append(f"{erp}: coded connector but README status is {status!r}")
-            if "skeleton" in status.lower():
+            # A coded row may scope a remaining skeleton mode only when a
+            # refusing module actually backs that claim.
+            if not refuses and (SKELETON_STATUS in status or "skeleton" in status.lower()):
                 failures.append(
-                    f"{erp}: coded connector but README calls it a skeleton: {status!r}"
+                    f"{erp}: coded connector with no refusing mode but README "
+                    f"claims skeleton scope: {status!r}"
                 )
     if failures:
         print("FAIL: README maturity table drifted from implementation state:")
