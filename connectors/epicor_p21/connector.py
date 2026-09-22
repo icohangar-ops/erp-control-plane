@@ -1,10 +1,17 @@
 """epicor_p21 — Epicor Prophet 21 extraction (OData v4 Data Services, cloud).
 
 STATUS: implemented against the documented P21 OData v4 Data Services surface
-(bearer-token auth, explicit ``$top`` paging — P21 does not emit OData
-continuation links, so this connector pages with ``$top`` + ``$skip`` and
-ALWAYS sets ``$top`` per the documented behavior — watermark on
-``date_last_modified``) but NOT exercised against a live tenant: no fabricated
+(middleware token auth — ``POST /api/security/token/v2`` with JSON credentials,
+defensively parsed because some middleware answers XML even when JSON is
+requested, cached until near expiry because tokens live ~24 h and the token
+endpoint throttles re-minting — explicit ``$top`` paging — P21 does not emit
+OData continuation links, so this connector pages with ``$top`` + ``$skip`` and
+ALWAYS sets ``$top`` per the documented behavior — soft-delete flags filtered
+server-side and client-side so a soft-delete-heavy site cannot mass-tombstone
+(spec §6.4) — header pages ``$orderby``'d on each entity's stable key so
+OFFSET windows are deterministic on active tables (spec §6.3), and malformed
+API pages quarantined with machine-readable reasons (fail-closed) — watermark
+on ``date_last_modified``) but NOT exercised against a live tenant: no fabricated
 API behavior ships as tested. Validate entity-set names and field maps against
 the tenant's ``$metadata`` at onboarding; ``plan --source <id>`` (dry-run)
 needs no network.
@@ -27,8 +34,13 @@ Extraction notes (ERP landscape research, art_NKUrngnG; posture art_7DIRx9Nu):
 from __future__ import annotations
 
 import datetime as dt
+import json
 import time
+import uuid
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import ClassVar
 
 import httpx
@@ -37,10 +49,26 @@ from connectors.base import (
     BaseConnector,
     ConnectorError,
     ConnectorMaturity,
+    ConnectorNotConfigured,
     ExtractionMode,
     ExtractionPlan,
     natural_id_for,
 )
+from control_plane.config import ControlPlaneConfig
+from control_plane.models import QuarantineRecord, SourceConfig
+from control_plane.store import ControlPlaneStore
+
+#: The middleware token endpoint (spec §2.2): v2 takes credentials in the JSON
+#: body — never headers.
+TOKEN_PATH = "/api/security/token/v2"
+
+#: iPaaS-documented token lifetime (~24 h) when the response carries no
+#: expiry hint.
+DEFAULT_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+#: Reason codes recorded on quarantined API pages (csv_sftp/NetSuite parity).
+RC_MALFORMED_PAGE = "MALFORMED_PAGE"
+RC_UNPARSEABLE_JSON = "UNPARSEABLE_JSON"
 
 #: entity -> (header table, canonical header map, lines table, fk, line map).
 #: Field names follow the documented P21 surface; reviewed against $metadata
@@ -117,6 +145,96 @@ _HEADER_CONTEXT: dict[str, dict[str, str]] = {
 }
 
 
+@dataclass(frozen=True)
+class SoftDelete:
+    """A table's soft-delete flag (spec §3 cross-cutting quirk: per-table and
+    inconsistent). ``deleted_value`` marks a soft-deleted row; the extraction
+    predicate filters the active value server-side, and both extraction and
+    the key-inventory scan drop ``deleted_value`` rows client-side so the
+    anti-join compares live-to-live."""
+
+    column: str
+    deleted_value: str
+    active_value: str
+
+
+#: Only tables the spec documents with a soft-delete flag get a filter — a
+#: filter on a column a table does not have 404s the whole request (spec §3).
+#: The row_status_flag tables (price_page, customer_salesrep) are not in this
+#: connector's entity set.
+_SOFT_DELETE: dict[str, SoftDelete] = {
+    "items": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+    "customers": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+    "vendors": SoftDelete(column="delete_flag", deleted_value="Y", active_value="N"),
+}
+
+
+def _is_soft_deleted(soft: SoftDelete | None, row: dict[str, object]) -> bool:
+    """True only on an EXPLICIT deleted flag — a missing/None column means the
+    flag is absent on this tenant, not that the row is dead.
+
+    Polarity per the spec's operative §6.4/§7 semantics ('Y' = deleted); §3.1's
+    "Y = active" parenthetical contradicts them, so per-site verification at
+    onboarding is mandatory before trusting tombstones.
+    """
+    return soft is not None and row.get(soft.column) == soft.deleted_value
+
+
+#: Stable server-side order per entity (spec §6.3 backfill mechanics: $top +
+#: $orderby on a stable key). Where the key is not unique per row, ties may
+#: interleave mid-scan — re-runs stay idempotent by natural key (NetSuite
+#: parity); partition long histories into watermark windows at onboarding.
+_ORDER_BY: dict[str, str] = {
+    "items": "item_id",
+    "customers": "customer_id",
+    "vendors": "supplier_id",
+    "inventory_snapshots": "inv_mast_uid, location_id",
+    "sales_order_lines": "order_no",
+    "invoice_lines": "invoice_no",
+    "purchase_order_lines": "po_no",
+}
+
+
+def _parse_token_payload(text: str) -> tuple[str, float]:
+    """Parse ``(AccessToken, lifetime_seconds)`` from a token-endpoint response.
+
+    Some middleware answers XML even when JSON is requested (spec §2.2), so
+    JSON is tried first and an XML body scanned for an ``AccessToken`` element.
+    Both failing is a hard error — never a silent empty token.
+    """
+    try:
+        payload: object = json.loads(text)
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        token = payload.get("AccessToken") or payload.get("access_token")
+        if isinstance(token, str) and token:
+            lifetime = DEFAULT_TOKEN_TTL_SECONDS
+            expiry = payload.get("ExpiresIn") or payload.get("expires_in")
+            if isinstance(expiry, (int, float)) and expiry > 0:
+                lifetime = float(expiry)
+            return token, lifetime
+        raise ConnectorError(
+            "Prophet 21 token response was JSON but carried no AccessToken — "
+            "refusing to authenticate with an empty token"
+        )
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ConnectorError(
+            "Prophet 21 token response is neither JSON nor XML — cannot "
+            "extract an AccessToken from it"
+        ) from exc
+    for element in root.iter():
+        if (
+            element.tag.rsplit("}", 1)[-1] == "AccessToken"
+            and element.text
+            and element.text.strip()
+        ):
+            return element.text.strip(), DEFAULT_TOKEN_TTL_SECONDS
+    raise ConnectorError("Prophet 21 token response carried no AccessToken element")
+
+
 class EpicorP21Connector(BaseConnector):
     """Prophet 21 OData v4 adapter. Credential-gated; dry-runs need no network."""
 
@@ -124,11 +242,21 @@ class EpicorP21Connector(BaseConnector):
     maturity = ConnectorMaturity.IMPLEMENTED  # coded — but see UNEXERCISED note above
     extraction_notes = (
         "OData v4 Data Services with explicit $top + $skip paging (no "
-        "continuation links — $top is always set), bearer-token auth, and "
-        "watermark on date_last_modified (spec §5). Not yet exercised against a "
-        "live tenant; validate entity sets and field maps against $metadata at "
-        "onboarding. On-prem P21 should use the SQL Server connector against a "
-        "read-only replica instead."
+        "continuation links — $top is always set), middleware token auth "
+        "(POST /api/security/token/v2 with JSON credentials; tokens live ~24 h, "
+        "are cached until near expiry, and one 401 triggers a single "
+        "re-mint-and-retry), soft-delete flags filtered server-side "
+        "(delete_flag eq 'N' on the tables the spec documents it for) and "
+        "client-side in both extraction and the key-inventory scan so a "
+        "soft-delete-heavy site cannot mass-tombstone (polarity follows the "
+        "spec's operative §6.4/§7 semantics — 'Y' = deleted — per-site "
+        "verified at onboarding), and watermark on date_last_modified. Header "
+        "pages are ORDERed by each entity's stable key so OFFSET windows are "
+        "deterministic on active tables, and malformed pages quarantine with a "
+        "machine-readable reason and fail the run. Not yet "
+        "exercised against a live tenant; validate entity sets, field maps, "
+        "and flag polarity against $metadata at onboarding. On-prem P21 should "
+        "use the SQL Server connector against a read-only replica instead."
     )
     natural_key_fields: ClassVar[dict[str, tuple[str, ...]]] = {
         "items": ("item_no",),
@@ -139,15 +267,23 @@ class EpicorP21Connector(BaseConnector):
         "purchase_order_lines": ("po_no", "line_no"),
         "inventory_snapshots": ("snapshot_date", "location_id", "item_no"),
     }
-    required_settings: ClassVar[tuple[str, ...]] = ("odata_base_url",)
+    required_settings: ClassVar[tuple[str, ...]] = (
+        "odata_base_url",
+        "odata_user",
+        "odata_password",
+    )
     PAGE_SIZE = 500
     MAX_RETRIES = 5
     BACKOFF_SECONDS = 2.0
 
-    def __init__(self, source, store, config):
+    def __init__(
+        self, source: SourceConfig, store: ControlPlaneStore, config: ControlPlaneConfig
+    ) -> None:
         super().__init__(source, store, config)
         self._http_client: httpx.Client | None = None
         self._max_incremental_seen: dict[str, str] = {}
+        self._cached_token: str | None = None
+        self._token_expiry = 0.0
 
     # ------------------------------------------------------------------
     # Contract surface
@@ -185,11 +321,15 @@ class EpicorP21Connector(BaseConnector):
     def _iter_records(
         self, entity: str, mode: ExtractionMode, watermark: str | None
     ) -> Iterator[dict[str, object]]:
+        self._require_config()
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
+        soft = _SOFT_DELETE.get(entity)
         if not spec.get("lines_table"):
             snapshot_date = self.source.settings.get("as_of_date") or dt.date.today().isoformat()
             for row in self._paged(entity, spec["table"], mode, watermark):
+                if _is_soft_deleted(soft, row):
+                    continue
                 # inv_loc is a live balance table; the nightly snapshot date is
                 # assigned at extraction time (documented in the module notes).
                 record = {canon: row.get(source) for canon, source in field_map.items()}
@@ -199,6 +339,8 @@ class EpicorP21Connector(BaseConnector):
             return
         context_map = _HEADER_CONTEXT[entity]
         for header in self._paged(entity, spec["table"], mode, watermark):
+            if _is_soft_deleted(soft, header):
+                continue  # a soft-deleted header's lines are never fetched
             fk_value = header.get(spec["fk"])
             if fk_value is None:
                 continue
@@ -219,9 +361,11 @@ class EpicorP21Connector(BaseConnector):
 
     def source_key_inventory(self, entity: str) -> set[str]:
         """Key scan of the entity set — the anti-join's source side."""
+        self._require_config()
         key_fields = self.natural_key_fields[entity]
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
+        soft = _SOFT_DELETE.get(entity)
         if spec.get("lines_table"):
             return {
                 natural_id_for(key_fields, record)
@@ -229,6 +373,8 @@ class EpicorP21Connector(BaseConnector):
             }
         keys: set[str] = set()
         for row in self._paged(entity, spec["table"], None, None):
+            if _is_soft_deleted(soft, row):
+                continue
             keys.add(
                 natural_id_for(
                     key_fields,
@@ -245,24 +391,43 @@ class EpicorP21Connector(BaseConnector):
         return self._max_incremental_seen.get(entity, watermark_before)
 
     # ------------------------------------------------------------------
-    # OData plumbing (explicit $top/$skip paging, 429 backoff, auth)
+    # OData plumbing (explicit $top/$skip paging, 429 backoff, token auth)
     # ------------------------------------------------------------------
 
     def _paged(self, entity: str, table: str, mode: ExtractionMode | None, watermark: str | None):
-        """Yield rows across explicit $top/$skip pages (P21 has no nextLink)."""
-        params: dict[str, str] = {"$top": str(self.PAGE_SIZE)}
-        if mode is ExtractionMode.INCREMENTAL and watermark:
-            params["$filter"] = f"date_last_modified gt {watermark}"
+        """Yield rows across explicit $top/$skip pages (P21 has no nextLink).
+
+        Pages are $orderby'd on the entity's stable key (spec §6.3) so OFFSET
+        windows are deterministic; on an active table rows can still shift
+        between pages mid-scan — re-runs are idempotent by natural key.
+        """
+        params = self._page_params(entity, mode, watermark)
         offset = 0
         while True:
             page_params = dict(params, **{"$skip": str(offset)})
-            payload = self._get_json(self._table_url(table), page_params)
-            rows = payload.get("value", [])
+            rows = self._request_rows(entity, self._table_url(table), page_params)
             self._observe_incremental(entity, rows)
             yield from rows
             if len(rows) < self.PAGE_SIZE:
                 return
             offset += self.PAGE_SIZE
+
+    def _page_params(
+        self, entity: str, mode: ExtractionMode | None, watermark: str | None
+    ) -> dict[str, str]:
+        params: dict[str, str] = {
+            "$top": str(self.PAGE_SIZE),
+            "$orderby": _ORDER_BY[entity],
+        }
+        filters: list[str] = []
+        if mode is ExtractionMode.INCREMENTAL and watermark:
+            filters.append(f"date_last_modified gt {watermark}")
+        soft = _SOFT_DELETE.get(entity)
+        if soft is not None:
+            filters.append(f"{soft.column} eq '{soft.active_value}'")
+        if filters:
+            params["$filter"] = " and ".join(filters)
+        return params
 
     def _fetch_lines(
         self, entity: str, spec: dict[str, object], fk_value: object
@@ -273,7 +438,8 @@ class EpicorP21Connector(BaseConnector):
         lines: list[dict[str, object]] = []
         offset = 0
         while True:
-            payload = self._get_json(
+            page = self._request_rows(
+                entity,
                 self._table_url(str(lines_table)),
                 {
                     "$top": str(self.PAGE_SIZE),
@@ -281,7 +447,6 @@ class EpicorP21Connector(BaseConnector):
                     "$filter": f"{fk} eq '{fk_value}'",
                 },
             )
-            page = payload.get("value", [])
             lines.extend(page)
             if len(page) < self.PAGE_SIZE:
                 return lines
@@ -297,39 +462,129 @@ class EpicorP21Connector(BaseConnector):
             if current is None or text > current:
                 self._max_incremental_seen[entity] = text
 
-    def _get_json(self, url: str, params: dict[str, str]) -> dict[str, object]:
-        """GET with auth headers and documented-limits backoff (429/503)."""
+    def _request_rows(
+        self, entity: str, url: str, params: dict[str, str]
+    ) -> list[dict[str, object]]:
+        """GET one page: bearer auth (one re-mint on 401), documented-limits
+        backoff on 429/503, quarantine on malformed bodies.
+
+        A 200 whose body is not ``{"value": [object, ...]}`` is quarantined
+        with a machine-readable reason and fails the run — never a silent
+        drop, never a partial promote (csv_sftp/NetSuite parity).
+        """
         delay = self.BACKOFF_SECONDS
-        for attempt in range(1, self.MAX_RETRIES + 1):
+        backoff_attempts = 0
+        reauthorized = False
+        while True:
             response = self._client().get(url, params=params, headers=self._headers())
             if response.status_code in (429, 503):
-                retry_after = response.headers.get("Retry-After")
-                delay = float(retry_after) if retry_after and retry_after.isdigit() else delay
-                if attempt == self.MAX_RETRIES:
+                backoff_attempts += 1
+                if backoff_attempts >= self.MAX_RETRIES:
                     raise ConnectorError(
                         f"Prophet 21 returned {response.status_code} on {url} after "
                         f"{self.MAX_RETRIES} backoff attempts"
                     )
+                retry_after = response.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after and retry_after.isdigit() else delay
                 time.sleep(delay)
                 delay *= 2
+                continue
+            if response.status_code == 401 and not reauthorized:
+                # A ~24 h token can lapse mid-run: mint once and retry — the
+                # re-mint does not count against the backoff budget.
+                reauthorized = True
+                self._cached_token = None
+                self._token_expiry = 0.0
                 continue
             try:
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 raise ConnectorError(f"Prophet 21 call failed: {exc}") from exc
-            data: dict[str, object] = response.json()
-            return data
-        raise ConnectorError("unreachable: retry loop must return or raise")  # pragma: no cover
+            try:
+                payload: object = response.json()
+            except ValueError as exc:
+                self._quarantine_page(entity, url, response.content, RC_UNPARSEABLE_JSON, str(exc))
+                raise ConnectorError(
+                    f"malformed Prophet 21 response on {url}: body is not JSON"
+                ) from exc
+            rows = payload.get("value") if isinstance(payload, dict) else None
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                self._quarantine_page(
+                    entity,
+                    url,
+                    json.dumps(payload, default=str).encode("utf-8"),
+                    RC_MALFORMED_PAGE,
+                    "'value' must be a list of objects",
+                )
+                raise ConnectorError(
+                    f"malformed Prophet 21 page for {entity} at {url}: "
+                    "'value' must be a list of objects"
+                )
+            return rows
+
+    def _quarantine_page(
+        self, entity: str, url: str, body: bytes, reason_code: str, detail: str
+    ) -> None:
+        """Persist an unreadable API page with a machine-readable reason
+        (csv_sftp/NetSuite parity): the run fails, but the offending body is
+        preserved for inspection instead of being dropped silently."""
+        file_name = f"{entity}-{uuid.uuid4().hex}.json"
+        target = self.config.quarantine_root / self.source.source_id / "api_pages" / file_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        self.store.record_quarantine(
+            QuarantineRecord(
+                source_id=self.source.source_id,
+                batch_id=None,
+                file_name=file_name,
+                reason_code=reason_code,
+                detail=f"{detail} (from {url})",
+                quarantine_path=str(target),
+                quarantined_at=datetime.now(UTC),
+            )
+        )
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
-        bearer = self.source.settings.get("bearer_token")
-        if bearer:
-            headers["Authorization"] = f"Bearer {bearer}"
-        api_key = self.source.settings.get("api_key")
-        if api_key:
-            headers["X-Api-Key"] = api_key
-        return headers
+        return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
+
+    def _token(self) -> str:
+        """Middleware token, cached until near expiry (spec §2.2).
+
+        Tokens live ~24 h and the token endpoint throttles re-minting, so the
+        token is minted once and reused across data calls; a mid-run 401
+        clears the cache (``_get_json`` retries the request).
+        """
+        if self._cached_token and self._token_expiry > time.time() + 60:
+            return self._cached_token
+        settings = self.source.settings
+        response = self._client().post(
+            self._token_url(),
+            content=json.dumps(
+                {"username": settings["odata_user"], "password": settings["odata_password"]}
+            ),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ConnectorError(f"Prophet 21 token request failed: {exc}") from exc
+        token, lifetime = _parse_token_payload(response.text)
+        self._cached_token = token
+        self._token_expiry = time.time() + lifetime
+        return token
+
+    def _require_config(self) -> None:
+        """Fail closed BEFORE any network attempt — inert without credentials."""
+        problems = self.validate_config()
+        if problems:
+            raise ConnectorNotConfigured(
+                f"source {self.source.source_id} ({self.erp_id}) is not configurable: "
+                + "; ".join(problems)
+            )
+
+    def _token_url(self) -> str:
+        base = self.source.settings["odata_base_url"].rstrip("/")
+        return f"{base}{TOKEN_PATH}"
 
     def _table_url(self, table: str) -> str:
         base = self.source.settings["odata_base_url"].rstrip("/")

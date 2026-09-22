@@ -81,11 +81,28 @@ def _bc_connector(tmp_path: Path) -> DynamicsBcConnector:
     return _bc_connector_with_companies(tmp_path, "33333333-3333")
 
 
-def _p21_connector(tmp_path: Path) -> EpicorP21Connector:
+P21_SETTINGS = {
+    "odata_base_url": "https://p21.fixture",
+    "odata_user": "fixture-user",
+    "odata_password": "fixture-password",
+}
+
+
+def _p21_connector(tmp_path: Path, settings: dict[str, str] | None = None) -> EpicorP21Connector:
     connector = _connector(
-        tmp_path, EpicorP21Connector, settings={"odata_base_url": "https://p21.fixture"}
+        tmp_path, EpicorP21Connector, settings={**P21_SETTINGS, **(settings or {})}
     )
     assert isinstance(connector, EpicorP21Connector)
+    return connector
+
+
+def _p21_with_seeded_token(tmp_path: Path) -> EpicorP21Connector:
+    """Token pre-minted (the BC idiom): fixtures exercising paging, filtering,
+    and reconciliation never need the token route."""
+    connector = _p21_connector(tmp_path)
+    assert isinstance(connector, EpicorP21Connector)
+    connector._cached_token = "fixture-access-token"
+    connector._token_expiry = time.time() + 3600
     return connector
 
 
@@ -550,12 +567,139 @@ def test_bc_dry_run_without_network(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Prophet 21: explicit $top/$skip paging, header-driven lines, reconciliation
+# Prophet 21: token-endpoint auth, explicit $top/$skip paging, header-driven
+# lines, soft-delete filtering, reconciliation
 # ---------------------------------------------------------------------------
 
 
-def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_p21_token_endpoint_auth_mints_and_reuses(tmp_path: Path) -> None:
+    """Spec §2.2: JSON credentials mint a bearer token at
+    /api/security/token/v2 (credentials in the body, never headers); the token
+    is minted once and reused across data calls — the token endpoint
+    throttles re-minting."""
     connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [_json_response({"AccessToken": "fixture-access-token"})],
+                "/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    token_calls = [c for c in calls if c.url.path.endswith("/token/v2")]
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert len(token_calls) == 1  # minted once, not per data call
+    assert json.loads(token_calls[0].content) == {
+        "username": "fixture-user",
+        "password": "fixture-password",
+    }
+    assert token_calls[0].headers["Content-Type"] == "application/json"
+    assert [c.headers["Authorization"] for c in data_calls] == ["Bearer fixture-access-token"]
+
+
+def test_p21_token_response_may_be_xml(tmp_path: Path) -> None:
+    """Spec §2.2: some middleware answers XML even when JSON is requested —
+    the AccessToken is parsed defensively instead of failing the run."""
+    connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    xml_body = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<TokenResponse><AccessToken>xml-token</AccessToken></TokenResponse>"
+    )
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [httpx.Response(200, content=xml_body)],
+                "/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert data_calls[0].headers["Authorization"] == "Bearer xml-token"
+
+
+def test_p21_reauths_once_on_mid_run_401(tmp_path: Path) -> None:
+    """A ~24 h token can lapse mid-run: one 401 clears the cache, mints once,
+    and retries the same request."""
+    connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [
+                    _json_response({"AccessToken": "token-1"}),
+                    _json_response({"AccessToken": "token-2"}),
+                ],
+                "/inv_mast": [
+                    httpx.Response(401),
+                    _json_response({"value": [{"item_id": "ITEM-0001"}]}),
+                ],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert [c.headers["Authorization"] for c in data_calls] == [
+        "Bearer token-1",
+        "Bearer token-2",
+    ]
+
+
+def test_p21_second_401_fails_honestly(tmp_path: Path) -> None:
+    """One re-mint per request, no more: a persistent 401 is a hard error."""
+    connector = _p21_connector(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [
+                    _json_response({"AccessToken": "token-1"}),
+                    _json_response({"AccessToken": "token-2"}),
+                ],
+                "/inv_mast": [httpx.Response(401), httpx.Response(401)],
+            },
+            [],
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="Prophet 21 call failed"):
+        connector.extract("items")
+
+
+def test_p21_backoff_gives_up_after_max_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [httpx.Response(429) for _ in range(5)]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    with pytest.raises(ConnectorError, match="after 5 backoff attempts"):
+        connector.extract("items")
+
+
+def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     items_page_1 = {
         "value": [
@@ -607,8 +751,28 @@ def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result.watermark_after == "2026-08-01T10:00:00"
 
 
+def test_p21_pages_are_ordered_by_a_stable_key(tmp_path: Path) -> None:
+    """Spec §6.3 backfill mechanics: $top + $orderby on a stable key so
+    OFFSET windows are deterministic on active tables."""
+    connector = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {"/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})]}, calls
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    connector.extract("items")
+
+    params = dict(calls[0].url.params)
+    assert params["$orderby"] == "item_id"
+    assert params["$top"] == "500"  # $top ALWAYS set
+    assert params["$skip"] == "0"
+
+
 def test_p21_header_driven_lines(tmp_path: Path) -> None:
-    connector = _p21_connector(tmp_path)
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     transport = httpx.MockTransport(
         _routing_handler(
@@ -664,10 +828,11 @@ def test_p21_header_driven_lines(tmp_path: Path) -> None:
     assert table.column("source_id").to_pylist() == ["SO-0001:1", "SO-0001:2"]
     line_filter = json.loads(json.dumps(dict(calls[-1].url.params)))["$filter"]
     assert line_filter == "oe_hdr_uid eq 'H1'"  # explicit FK filter
+    assert dict(calls[0].url.params)["$orderby"] == "order_no"  # stable-key header pages
 
 
 def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
-    connector = _p21_connector(tmp_path)
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     items = {
         "value": [
@@ -677,6 +842,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
             {
                 "item_id": "ITEM-0002",
@@ -684,6 +850,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
         ]
     }
@@ -695,6 +862,7 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
                 "product_group_id": "PG",
                 "avg_cost": 1.0,
                 "price_1": 2.0,
+                "delete_flag": "N",
             },
         ]
     }
@@ -707,6 +875,151 @@ def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
     result = connector.reconcile_deletes("items")
 
     assert result.tombstoned_keys == ("ITEM-0001",)
+    assert dict(calls[0].url.params)["$filter"] == "delete_flag eq 'N'"  # live keys only
+
+
+def test_p21_soft_deleted_rows_are_filtered_from_staging(tmp_path: Path) -> None:
+    """Spec §3 cross-cutting quirk + §6.4: delete_flag='Y' rows are filtered
+    server-side (the $filter carries the active value) and dropped client-side
+    in both staging and the key scan — a soft-delete-heavy site (297 of 300
+    sampled price_page rows deleted on one tenant) stages no stale rows, and
+    the anti-join compares live-to-live instead of mass-tombstoning."""
+    connector = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    page = {
+        "value": [
+            {"item_id": "ITEM-0001", "delete_flag": "N"},
+            {"item_id": "ITEM-0002", "delete_flag": "Y"},  # soft-deleted at the source
+        ]
+    }
+    live_after = {"value": [{"item_id": "ITEM-0001", "delete_flag": "N"}]}
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response(page), _json_response(live_after)]}, calls)
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1  # the soft-deleted row never staged
+    assert dict(calls[0].url.params)["$filter"] == "delete_flag eq 'N'"
+    assert pq.read_table(result.parquet_path).column("source_id").to_pylist() == ["ITEM-0001"]
+
+    reconciliation = connector.reconcile_deletes("items")
+    assert reconciliation.tombstoned_keys == ()  # ITEM-0001 is live — no mass tombstone
+
+
+def test_p21_soft_deleted_rows_are_eligible_for_tombstones(tmp_path: Path) -> None:
+    """A row soft-deleted AFTER it was staged is gone from the live key set —
+    the anti-join tombstones it like a hard delete (spec §6.4)."""
+    connector = _p21_with_seeded_token(tmp_path)
+    first = {
+        "value": [
+            {"item_id": "ITEM-0001", "delete_flag": "N"},
+            {"item_id": "ITEM-0002", "delete_flag": "N"},
+        ]
+    }
+    remaining = {
+        "value": [
+            {"item_id": "ITEM-0002", "delete_flag": "N"},
+            {"item_id": "ITEM-0001", "delete_flag": "Y"},  # soft-deleted since staging
+        ]
+    }
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response(first), _json_response(remaining)]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    connector.extract("items")
+    result = connector.reconcile_deletes("items")
+
+    assert result.tombstoned_keys == ("ITEM-0001",)
+
+
+def test_p21_incremental_restart_is_a_no_op(tmp_path: Path) -> None:
+    """Rerunning incremental at the stored watermark re-extracts nothing and
+    leaves the watermark pinned (csv_sftp idempotency precedent)."""
+    first = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/inv_mast": [
+                    _json_response(
+                        {
+                            "value": [
+                                {
+                                    "item_id": "ITEM-0001",
+                                    "delete_flag": "N",
+                                    "date_last_modified": "2026-08-01T10:00:00",
+                                }
+                            ]
+                        }
+                    )
+                ]
+            },
+            [],
+        )
+    )
+    first._http_client = httpx.Client(transport=transport)
+
+    result = first.extract("items", ExtractionMode.INCREMENTAL)
+    assert result.rows_extracted == 1
+    assert result.watermark_after == "2026-08-01T10:00:00"
+
+    # Same tmp store: the rerun inherits the persisted checkpoint.
+    second = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    transport_2 = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response({"value": []})]}, calls)
+    )
+    second._http_client = httpx.Client(transport=transport_2)
+
+    result_2 = second.extract("items", ExtractionMode.INCREMENTAL)
+
+    assert result_2.rows_extracted == 0
+    assert result_2.watermark_after == "2026-08-01T10:00:00"
+    assert dict(calls[0].url.params)["$filter"] == (
+        "date_last_modified gt 2026-08-01T10:00:00 and delete_flag eq 'N'"
+    )
+
+
+def test_p21_quarantines_malformed_page(tmp_path: Path) -> None:
+    """A structurally malformed page is quarantined with a machine-readable
+    reason and fails the run — never a silent drop, never a partial promote."""
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response({"value": "not-a-list"})]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="malformed"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    record = records[0]
+    assert record.reason_code == "MALFORMED_PAGE"
+    assert record.source_id == "epicor_p21_template"
+    assert json.loads(Path(record.quarantine_path).read_text(encoding="utf-8")) == {
+        "value": "not-a-list"
+    }
+    # a failed run never advances a checkpoint
+    assert connector.store.get_watermark(connector.source.source_id, "items", "backfill") is None
+
+
+def test_p21_quarantines_unparseable_json(tmp_path: Path) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [httpx.Response(200, content=b"<html>gateway</html>")]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="not JSON"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    assert records[0].reason_code == "UNPARSEABLE_JSON"
+    assert Path(records[0].quarantine_path).read_bytes().startswith(b"<html>")
 
 
 def test_p21_dry_run_without_network(tmp_path: Path) -> None:
@@ -716,12 +1029,46 @@ def test_p21_dry_run_without_network(tmp_path: Path) -> None:
     assert not connector.validate_config()
     surfaces = [entry["surface"] for entry in plan["entities"]]
     assert any("$top=500" in s for s in surfaces)  # $top is always set
+    notes = plan["entities"][0]["notes"]
+    assert "/api/security/token/v2" in notes  # token auth, not static headers
+    assert "delete_flag" in notes  # soft-delete filtering documented
+    assert "date_last_modified" in notes
 
 
 def test_p21_requires_base_url(tmp_path: Path) -> None:
     connector = _connector(tmp_path, EpicorP21Connector)
     problems = connector.validate_config()
     assert problems and "odata_base_url" in problems[0]
+
+
+def test_p21_disabled_first_without_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabled-first: without credentials the adapter validates to an honest
+    problem list, refuses registration and extraction before any network
+    attempt, and the registry template resolves to exactly that state."""
+    for var in ("P21_ODATA_URL", "P21_ODATA_USER", "P21_ODATA_PASSWORD", "P21_AS_OF_DATE"):
+        monkeypatch.delenv(var, raising=False)
+
+    connector = _connector(tmp_path, EpicorP21Connector)
+    assert isinstance(connector, EpicorP21Connector)
+    problems = connector.validate_config()
+    assert problems and "odata_base_url" in problems[0]
+
+    with pytest.raises(ConnectorNotConfigured):
+        connector.register()
+    with pytest.raises(ConnectorNotConfigured):
+        connector.extract("items")
+    assert connector._http_client is None  # no network machinery was ever built
+
+    # the registry template resolves all ${VAR:-} to empty and stays disabled
+    source = next(s for s in load_source_configs() if s.source_id == "epicor_p21_template")
+    assert source.enabled is False
+    assert source.settings["odata_user"] == ""
+    assert source.settings["odata_password"] == ""
+    template = _connector(tmp_path, EpicorP21Connector, settings=source.settings)
+    assert isinstance(template, EpicorP21Connector)
+    assert template.validate_config()  # honestly unconfigurable, exactly like the fixture
 
 
 # ---------------------------------------------------------------------------

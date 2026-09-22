@@ -143,9 +143,20 @@ item attributes, and ship-to/order-address masters have no v2.0 entity
 (custom AL API pages per tenant); historical backfill is a restore-side
 BACPAC export, never an in-connector path; and malformed API pages quarantine
 with a machine-readable reason and fail the run. Prophet 21
-(`connectors/epicor_p21/`) pages
+(`connectors/epicor_p21/`) authenticates by minting a middleware token
+(`POST /api/security/token/v2`, credentials in the JSON body; some middleware
+answers XML even when JSON is requested, so the response is parsed
+defensively — tokens live ~24 h, are cached until near expiry, and one 401
+triggers a single re-mint-and-retry), pages
 OData v4 with explicit `$top`/`$skip` (P21 emits no continuation links, so
-`$top` is always set), reads header-driven lines with an explicit FK
+`$top` is always set) ORDERed by each entity's stable key so OFFSET windows
+are deterministic, filters soft-delete flags server-side
+(`delete_flag eq 'N'` on the tables the spec documents it for) and
+client-side in both extraction and the key-inventory scan so a
+soft-delete-heavy site cannot mass-tombstone through the anti-join (the
+spec's §3.1 "Y = active" note contradicts its §6.4/§7 "Y = deleted"
+semantics — the adapter implements §6.4/§7; verify polarity per site at
+onboarding), reads header-driven lines with an explicit FK
 `$filter`, and watermarks on `date_last_modified`. NetSuite
 (`connectors/netsuite/`) posts SuiteQL to the SuiteTalk REST endpoint with
 OAuth1 token auth, pages LIMIT/OFFSET at 200 rows (each query ORDERed by the
