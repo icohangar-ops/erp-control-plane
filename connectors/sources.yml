@@ -136,16 +136,19 @@ sources:
   - source_id: d365_bc_template
     erp: d365_bc
     description: >
-      Dynamics 365 Business Central — API v2.0/OData v4 with $top + continuation
-      paging, Data-Access-Intent: ReadOnly, and HTTP 429 backoff. Coded to the
-      documented surface; UNEXERCISED pending Entra app registration.
+      Dynamics 365 Business Central — API v2.0/OData v4 with per-company
+      iteration over D365BC_COMPANIES (comma-separated company ids), $top +
+      continuation paging, Data-Access-Intent: ReadOnly, and HTTP 429/503/504
+      backoff. The checkpoint is the max lastModifiedDateTime observed across
+      ALL configured companies. Coded to the documented surface; UNEXERCISED
+      pending Entra app registration.
     enabled: false
     settings:
       tenant_id: ${D365BC_TENANT_ID:-}
       client_id: ${D365BC_CLIENT_ID:-}
       client_secret: ${D365BC_CLIENT_SECRET:-}
       environment: ${D365BC_ENVIRONMENT:-}
-      company_id: ${D365BC_COMPANY_ID:-}
+      companies: ${D365BC_COMPANIES:-}
       api_version: ${D365BC_API_VERSION:-v2.0}
 
   - source_id: cloud_erp_rest_template

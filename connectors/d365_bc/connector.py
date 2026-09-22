@@ -1,51 +1,71 @@
 """d365_bc — Dynamics 365 Business Central extraction (API v2.0 / OData v4).
 
 STATUS: implemented against the documented API v2.0 surface (OAuth2 client
-credentials, server-driven OData paging via ``@odata.nextLink`` with ``$top``
-set explicitly, ``Data-Access-Intent=ReadOnly`` to keep reads off the tenant
-primary, HTTP 429/503 backoff per the documented service limits) but NOT
-exercised against a live tenant — per the locked decisions, no fabricated API
-behavior ships as tested. Validate field maps against the tenant's
-``$metadata`` and run ``python -m connectors.cli plan --source <id>`` (dry-run)
-before any live call.
+credentials, per-company iteration over the configured companies list,
+server-driven OData paging via ``@odata.nextLink`` with ``$top`` set
+explicitly, ``Data-Access-Intent=ReadOnly`` to keep reads off the tenant
+primary, HTTP 429/503 backoff and 504 page-shrink per the documented service
+limits) but NOT exercised against a live tenant — per the locked decisions, no
+fabricated API behavior ships as tested. Validate field maps against the
+tenant's ``$metadata`` and run ``python -m connectors.cli plan --source <id>``
+(dry-run) before any live call.
 
-Extraction notes (ERP landscape research, art_NKUrngnG; posture art_7DIRx9Nu):
-- D365 BC exposes API v2.0 (Microsoft Entra ID OAuth2, per-company endpoints)
-  covering salesOrders, salesInvoices, purchaseOrders, items, customers,
-  vendors, and generalLedgerEntries.
-- Backfill for multi-year history: restore a BACPAC export of the tenant DB
-  into a scratch SQL DB and bulk-read, then switch the connector to API v2
-  for the delta. Never point production extraction at the tenant primary.
-- Company id is part of every API URL; multi-company tenants need one
-  extraction stream per company (or loop with company_id).
-- Line entities are read header-driven: page ``salesOrders``/``salesInvoices``/
-  ``purchaseOrders`` (incremental on ``lastModifiedDateTime``) with the lines
-  expanded, then flatten each lines array into canonical staging rows. Expanded
-  arrays ride along with the header page — no nested paging.
-- Documented limits: default page size 20,000 per page for $top; this pack
-  defaults far lower (see PAGE_SIZE) and honors Retry-After on 429/503.
+Extraction notes (integration spec "D365 BC — Connector Mechanisms",
+art_3iTLa6aV; rollout posture art_TQ2kx5ZN):
+- API v2.0 is company-scoped: the only non-company-scoped call is
+  ``GET /companies``; every entity URL is ``/companies({id})/{entitySet}``
+  (spec pitfall 3). The connector loops the configured companies list and
+  checkpoints the max ``lastModifiedDateTime`` observed across ALL of them —
+  never a per-company max.
+- ``salesInvoices`` is the invoice document aggregate, not a posted-invoice
+  archive (spec pitfall 6) — the caveat rides the ``invoice_lines`` plan.
+- Price lists, item attributes, and ship-to/order-address masters have no
+  standard v2.0 entity (spec §3) — custom AL API pages per tenant; noted on
+  the affected plans.
+- Historical backfill is restore-side: BACPAC via the admin center, restored
+  into Azure SQL/SQL Server (10 exports/environment/month) — never an
+  in-connector path.
+- Watermarks are delete-blind (spec pitfall 7): hard deletes reconcile
+  through the scheduled anti-join (``reconcile_deletes``), part of the
+  contract.
+- Documented limits: 20,000 entities/page platform cap; this pack defaults
+  far lower (see ``PAGE_SIZE``), honors ``Retry-After`` on 429/503, and
+  shrinks its page on 504 (spec §5 handling).
 """
 
 from __future__ import annotations
 
+import json
 import time
+import uuid
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any, ClassVar
 
 import httpx
+import pyarrow as pa
 
 from connectors.base import (
     BaseConnector,
     ConnectorError,
     ConnectorMaturity,
+    ConnectorNotConfigured,
+    DeleteSemantics,
     ExtractionMode,
     ExtractionPlan,
     natural_id_for,
 )
+from control_plane.config import ControlPlaneConfig
+from control_plane.models import QuarantineRecord, SourceConfig
+from control_plane.store import ControlPlaneStore
 
 TOKEN_URL_TEMPLATE = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token"
 BC_API_BASE = "https://api.businesscentral.dynamics.com/v2.0"
+
+#: Reason codes recorded on quarantined API pages (csv_sftp quarantine parity).
+RC_MALFORMED_PAGE = "MALFORMED_PAGE"
+RC_UNPARSEABLE_JSON = "UNPARSEABLE_JSON"
 
 
 @dataclass(frozen=True)
@@ -226,45 +246,145 @@ _LINE_FIELD_MAPS: dict[str, dict[str, str]] = {
     },
 }
 
+#: Per-entity extraction-plan caveats from the integration spec (art_3iTLa6aV).
+#: These ride describe_extraction() so onboarding sees them before wiring a
+#: tenant — they document surfaces this connector deliberately does not fake.
+_ENTITY_NOTES: dict[str, str] = {
+    "items": (
+        "No price lists or item attributes in standard v2.0 (spec §3 rows 2, 11): "
+        "unitPrice/unitCost ride the item; price-list extraction (Price List "
+        "Header/Line, tables 7002/7003) and item attributes (tables 7500-7502) "
+        "need a custom AL API page per tenant."
+    ),
+    "customers": (
+        "Ship-to addresses ride documents and posted shipments; the ship-to "
+        "address book (Ship-to Address, table 222) has no v2.0 entity — custom "
+        "AL API page per tenant (spec §3 row 4)."
+    ),
+    "vendors": (
+        "Vendor order addresses (Order Address, table 260) have no v2.0 entity — "
+        "custom AL API page per tenant (spec §3 row 4)."
+    ),
+    "sales_order_lines": (
+        "salesOrders is the open-document aggregate; line rows derive from the "
+        "expanded SalesOrderLines array. Posted order history: BACPAC restore "
+        "or a custom AL API over posted tables."
+    ),
+    "invoice_lines": (
+        "salesInvoices is the invoice DOCUMENT AGGREGATE (status Draft / In "
+        "Review / Open / Paid / Canceled / Corrective), NOT a posted-invoice "
+        "archive (spec pitfall 6). Strict posted history: the "
+        "microsoft/automate v1.0 postedSalesInvoices systemId route, a BACPAC "
+        "restore, or a custom AL API over posted tables."
+    ),
+    "purchase_order_lines": (
+        "No posted purchase-invoice entity exists at all (spec §3 row 8): open "
+        "purchaseInvoices plus GET-only purchaseReceipts; posted history via "
+        "BACPAC restore or a custom AL API."
+    ),
+    "gl_entries": (
+        "generalLedgerEntries is GET-only and append-only; there is no API write "
+        "path into the ledger (spec §3 row 10). Watermarked on postingDate — a "
+        "plain business date with no time component (spec pitfall 5)."
+    ),
+}
+
+#: Explicit Arrow types for canonical fields that are not strings. BC decimals
+#: arrive as JSON numbers (int or float) — float64 accepts both; item_status
+#: is the BC ``blocked`` boolean, staged typed and cast in dbt staging.
+_ARROW_FIELD_TYPES: dict[str, pa.DataType] = {
+    "line_no": pa.int64(),
+    "credit_limit": pa.float64(),
+    "unit_cost": pa.float64(),
+    "list_price": pa.float64(),
+    "ordered_qty": pa.float64(),
+    "filled_qty": pa.float64(),
+    "cancelled_qty": pa.float64(),
+    "invoiced_qty": pa.float64(),
+    "received_qty": pa.float64(),
+    "unit_price": pa.float64(),
+    "unit_cost_actual": pa.float64(),
+    "debit_amt": pa.float64(),
+    "credit_amt": pa.float64(),
+    "item_status": pa.bool_(),
+}
+
+
+def _bc_timestamp(raw: str) -> datetime:
+    """Parse a BC API timestamp for watermark comparison (UTC — spec pitfall 5).
+
+    BC stores every DateTime as UTC and OData transfers carry the offset; a
+    lexical string compare misorders mixed-precision stamps (``.6Z`` vs
+    ``.603Z``), so the checkpoint compares parsed instants and keeps the
+    original text for the next ``$filter``.
+    """
+    try:
+        value = datetime.fromisoformat(raw)
+    except ValueError as exc:
+        raise ConnectorError(
+            f"unparseable Business Central timestamp {raw!r} — refusing to advance a "
+            "watermark on it (storing one would silently skip records)"
+        ) from exc
+    if value.tzinfo is None:
+        # Business dates (postingDate) carry no offset; BC web services run UTC.
+        value = value.replace(tzinfo=UTC)
+    return value
+
 
 class DynamicsBcConnector(BaseConnector):
     """Business Central API v2.0 adapter. Credential-gated; dry-runs need no network."""
 
     erp_id = "d365_bc"
     maturity = ConnectorMaturity.IMPLEMENTED  # coded — but see UNEXERCISED note above
+    #: BC extracts are watermark-incremental per entity — never a wholesale
+    #: replacement — so deletes surface only through the scheduled anti-join.
+    full_snapshot = False
+    delete_handling = DeleteSemantics.ANTI_JOIN
     extraction_notes = (
-        "API v2.0 / OData v4 with $top + @odata.nextLink continuation paging, "
-        "Data-Access-Intent=ReadOnly, and HTTP 429 backoff per the documented "
-        "limits (spec §5). Not yet exercised against a live tenant; validate "
-        "field maps against $metadata and confirm Entra app registration and "
+        "API v2.0 / OData v4 per company: $top + @odata.nextLink continuation "
+        "paging, Data-Access-Intent=ReadOnly, Retry-After backoff on 429/503 and "
+        "page-shrink on 504 per the documented limits (spec §5). The checkpoint "
+        "is the max lastModifiedDateTime observed across ALL configured "
+        "companies — never a per-company max (spec pitfall 3). Watermarks are "
+        "delete-blind (spec pitfall 7): the scheduled anti-join reconciliation "
+        "tombstones vanished keys. Historical backfill is restore-side: "
+        "admin-center BACPAC export restored into Azure SQL/SQL Server (10 "
+        "exports/environment/month) — never an in-connector path. Malformed "
+        "pages quarantine with a machine-readable reason and fail the run. Not "
+        "yet exercised against a live tenant; validate field maps against "
+        "$metadata and confirm Entra app registration, permission sets, and "
         "company scoping at onboarding."
     )
     natural_key_fields: ClassVar[dict[str, tuple[str, ...]]] = {
-        "items": ("item_no",),
-        "customers": ("customer_no",),
-        "vendors": ("vendor_no",),
-        "sales_order_lines": ("order_no", "line_no"),
-        "invoice_lines": ("invoice_no", "line_no"),
-        "purchase_order_lines": ("po_no", "line_no"),
-        "gl_entries": ("journal_no",),
+        "items": ("company_id", "item_no"),
+        "customers": ("company_id", "customer_no"),
+        "vendors": ("company_id", "vendor_no"),
+        "sales_order_lines": ("company_id", "order_no", "line_no"),
+        "invoice_lines": ("company_id", "invoice_no", "line_no"),
+        "purchase_order_lines": ("company_id", "po_no", "line_no"),
+        "gl_entries": ("company_id", "journal_no"),
     }
     required_settings: ClassVar[tuple[str, ...]] = (
         "tenant_id",
         "client_id",
         "client_secret",
         "environment",
-        "company_id",
+        "companies",
     )
     PAGE_SIZE = 1000  # documented $top cap is 20,000 — stay conservative
+    MIN_PAGE_SIZE = 100
     MAX_RETRIES = 5
     BACKOFF_SECONDS = 2.0
 
-    def __init__(self, source, store, config):
+    def __init__(
+        self, source: SourceConfig, store: ControlPlaneStore, config: ControlPlaneConfig
+    ) -> None:
         super().__init__(source, store, config)
         self._http_client: httpx.Client | None = None
         self._cached_token: str | None = None
         self._token_expiry = 0.0
         self._max_incremental_seen: dict[str, str] = {}
+        self._page_size: int | None = None  # halved on 504 (spec §5)
 
     # ------------------------------------------------------------------
     # Contract surface
@@ -280,19 +400,49 @@ class DynamicsBcConnector(BaseConnector):
                 f"missing required Business Central settings: {', '.join(missing)} "
                 "(see .env.example; source stays disabled until configured)"
             ]
+        if not self._companies():
+            return [
+                "setting 'companies' resolves to no usable company ids — provide a "
+                "comma-separated list of BC company ids in D365BC_COMPANIES "
+                "(enumerate with GET /companies)"
+            ]
         return []
 
     def describe_extraction(self, entity: str) -> ExtractionPlan:
         mapping = self._entity_map(entity)
-        surface = f"API v2.0: GET /companies({{id}})/{mapping.entity_set}"
+        api_version = self.source.settings.get("api_version") or "v2.0"
+        surface = f"API {api_version}: GET /companies({{id}})/{mapping.entity_set}"
         if mapping.lines_field:
             surface += f"?$expand={mapping.lines_field}"
+        count = len(self._companies())
+        surface += f" across {count} configured compan{'y' if count == 1 else 'ies'}"
+        notes = "\n".join(
+            part for part in (_ENTITY_NOTES.get(entity, ""), self.extraction_notes) if part
+        )
         return ExtractionPlan(
             entity=entity,
             surface=surface,
             incremental_key=mapping.incremental_field,
-            notes=self.extraction_notes,
+            notes=notes,
         )
+
+    def arrow_schema(self, entity: str) -> pa.Schema:
+        """Declared staging schema — never infer types from the first batch.
+
+        Multi-company runs mix null patterns per company; first-batch inference
+        would mis-type a column that happens to be all-null in company 1.
+        """
+        canonical = set(_FIELD_MAPS[entity]) | set(_LINE_FIELD_MAPS.get(entity, {}))
+        canonical.add("company_id")
+        fields = [
+            pa.field(name, _ARROW_FIELD_TYPES.get(name, pa.string())) for name in sorted(canonical)
+        ]
+        fields += [
+            pa.field("source_system", pa.string()),
+            pa.field("source_id", pa.string()),
+            pa.field("loaded_at", pa.string()),
+        ]
+        return pa.schema(fields)
 
     # ------------------------------------------------------------------
     # Extraction
@@ -301,49 +451,61 @@ class DynamicsBcConnector(BaseConnector):
     def _iter_records(
         self, entity: str, mode: ExtractionMode, watermark: str | None
     ) -> Iterator[dict[str, object]]:
+        self._require_config()
+        mapping = self._entity_map(entity)
+        for company_id in self._companies():
+            for row in self._paged(mapping, entity, mode, watermark, company_id):
+                yield from self._flatten(entity, row, company_id)
+
+    def _flatten(
+        self, entity: str, row: dict[str, object], company_id: str
+    ) -> Iterator[dict[str, object]]:
+        """Fold one API row into canonical staging records, company-scoped."""
         mapping = self._entity_map(entity)
         field_map = _FIELD_MAPS[entity]
-        for row in self._paged(mapping.entity_set, entity, mapping, mode, watermark):
-            if mapping.lines_field is None:
-                yield {canon: row.get(source) for canon, source in field_map.items()}
-                continue
-            header_context = {
-                canon: row.get(source)
-                for canon, source in field_map.items()
-                if canon not in _LINE_FIELD_MAPS[entity]
-            }
-            for line in row.get(mapping.lines_field) or []:
-                line_fields = _LINE_FIELD_MAPS[entity]
-                record: dict[str, object] = dict(header_context)
-                record.update({canon: line.get(source) for canon, source in line_fields.items()})
-                if record.get("line_no") is None:
-                    continue  # header without lines data — not a line row
-                yield record
+        if mapping.lines_field is None:
+            record = {canon: row.get(source) for canon, source in field_map.items()}
+            record["company_id"] = company_id
+            yield record
+            return
+        header_context = {
+            canon: row.get(source)
+            for canon, source in field_map.items()
+            if canon not in _LINE_FIELD_MAPS[entity]
+        }
+        for line in row.get(mapping.lines_field) or []:
+            record: dict[str, object] = dict(header_context)
+            record.update(
+                {canon: line.get(source) for canon, source in _LINE_FIELD_MAPS[entity].items()}
+            )
+            if record.get("line_no") is None:
+                continue  # header without lines data — not a line row
+            record["company_id"] = company_id
+            yield record
 
     def source_key_inventory(self, entity: str) -> set[str]:
-        """Key scan of the entity set — the anti-join's source side.
+        """Key scan across every configured company — the anti-join's source side.
 
-        Flat entities scan with a key-only ``$select``; header-driven line
-        entities derive keys from the full line stream (line keys live inside
-        expanded header rows).
+        Flat entities scan with a key-only ``$select`` per company; header-driven
+        line entities derive keys from the full line stream (line keys live
+        inside expanded header rows). Natural ids are company-prefixed so two
+        companies' shared document numbers never collapse into one key.
         """
+        self._require_config()
         mapping = self._entity_map(entity)
         key_fields = self.natural_key_fields[entity]
+        keys: set[str] = set()
         if mapping.lines_field is not None:
-            return {
-                natural_id_for(key_fields, record)
-                for record in self._iter_records(entity, ExtractionMode.BACKFILL, None)
-            }
+            for record in self._iter_records(entity, ExtractionMode.BACKFILL, None):
+                keys.add(natural_id_for(key_fields, record))
+            return keys
         field_map = _FIELD_MAPS[entity]
         select = self._key_select(entity, mapping)
-        keys: set[str] = set()
-        for row in self._paged(mapping.entity_set, entity, mapping, None, None, select=select):
-            keys.add(
-                natural_id_for(
-                    key_fields,
-                    {c: row.get(s) for c, s in field_map.items() if c in key_fields},
-                )
-            )
+        for company_id in self._companies():
+            for row in self._paged(mapping, entity, None, None, company_id, select=select):
+                record = {c: row.get(s) for c, s in field_map.items() if c in key_fields}
+                record["company_id"] = company_id
+                keys.add(natural_id_for(key_fields, record))
         return keys
 
     def current_watermark(
@@ -352,19 +514,30 @@ class DynamicsBcConnector(BaseConnector):
         mapping = self._entity_map(entity)
         if mode is not ExtractionMode.INCREMENTAL or mapping.incremental_field is None:
             return watermark_before
+        # Cross-company checkpoint: the max lastModifiedDateTime observed across
+        # every configured company's pages — never a per-company max (spec
+        # pitfall 3). The base persists it only after the run fully succeeds.
         return self._max_incremental_seen.get(entity, watermark_before)
 
     # ------------------------------------------------------------------
-    # OData plumbing (paging, backoff, auth)
+    # OData plumbing (paging, backoff, auth, quarantine)
     # ------------------------------------------------------------------
 
-    def _paged(self, entity_set, entity, mapping, mode, watermark, select=None):
-        """Yield rows across @odata.nextLink continuation pages."""
+    def _paged(
+        self,
+        mapping: BcEntity,
+        entity: str,
+        mode: ExtractionMode | None,
+        watermark: str | None,
+        company_id: str,
+        select: str | None = None,
+    ) -> Iterator[dict[str, object]]:
+        """Yield one company's rows across @odata.nextLink continuation pages."""
         params: dict[str, str] = {
-            "$top": str(self.PAGE_SIZE),
+            "$top": str(self._current_page_size()),
+            "$select": select or ",".join(mapping.select),
             "Data-Access-Intent": "ReadOnly",
         }
-        params["$select"] = select or ",".join(mapping.select)
         if mapping.lines_field:
             params["$expand"] = mapping.lines_field
         if (
@@ -373,11 +546,12 @@ class DynamicsBcConnector(BaseConnector):
             and watermark
         ):
             params["$filter"] = f"{mapping.incremental_field} gt {watermark}"
-        url = self._entity_url(entity_set)
+        url = self._entity_url(mapping.entity_set, company_id)
         while url:
-            payload = self._get_json(url, params)
-            self._observe_incremental(entity, mapping, payload.get("value", []))
-            yield from payload.get("value", [])
+            payload = self._get_json(entity, url, params)
+            rows: list[dict[str, object]] = payload["value"]  # shape-validated in _get_json
+            self._observe_incremental(entity, mapping, rows)
+            yield from rows
             next_link = payload.get("@odata.nextLink")
             url = next_link if isinstance(next_link, str) else None
             params = {}  # nextLink carries the query with it
@@ -385,6 +559,7 @@ class DynamicsBcConnector(BaseConnector):
     def _observe_incremental(
         self, entity: str, mapping: BcEntity, rows: list[dict[str, object]]
     ) -> None:
+        """Track the max incremental value seen — across ALL pages and companies."""
         field = mapping.incremental_field
         if field is None:
             return
@@ -394,15 +569,22 @@ class DynamicsBcConnector(BaseConnector):
                 continue
             text = str(observed)
             current = self._max_incremental_seen.get(entity)
-            if current is None or text > current:
+            if current is None or _bc_timestamp(text) > _bc_timestamp(current):
                 self._max_incremental_seen[entity] = text
 
-    def _get_json(self, url: str, params: dict[str, str]) -> dict[str, object]:
-        """GET with bearer auth and documented-limits backoff (429/503)."""
+    def _get_json(self, entity: str, url: str, params: dict[str, str]) -> dict[str, object]:
+        """GET with bearer auth, documented-limits backoff, and page validation.
+
+        429/503 back off honoring ``Retry-After``; a 504 on a self-constructed
+        URL halves ``$top`` first (spec §5: split the request into smaller
+        ones). A 200 whose body is not ``{"value": [object, ...]}`` is
+        quarantined with a machine-readable reason and fails the run — never a
+        silent drop, never a partial promote.
+        """
         delay = self.BACKOFF_SECONDS
         for attempt in range(1, self.MAX_RETRIES + 1):
             response = self._client().get(url, params=params, headers=self._headers())
-            if response.status_code in (429, 503):
+            if response.status_code in (429, 503, 504):
                 retry_after = response.headers.get("Retry-After")
                 delay = float(retry_after) if retry_after and retry_after.isdigit() else delay
                 if attempt == self.MAX_RETRIES:
@@ -410,6 +592,11 @@ class DynamicsBcConnector(BaseConnector):
                         f"Business Central returned {response.status_code} on {url} "
                         f"after {self.MAX_RETRIES} backoff attempts"
                     )
+                if response.status_code == 504 and params:
+                    # Our own URL: shrink the window. nextLink pages carry the
+                    # server's query — backoff is all that applies there.
+                    self._shrink_page_size()
+                    params = {**params, "$top": str(self._current_page_size())}
                 time.sleep(delay)
                 delay *= 2
                 continue
@@ -417,9 +604,50 @@ class DynamicsBcConnector(BaseConnector):
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 raise ConnectorError(f"Business Central call failed: {exc}") from exc
-            data: dict[str, object] = response.json()
-            return data
+            try:
+                payload: object = response.json()
+            except ValueError as exc:
+                self._quarantine_page(entity, url, response.content, RC_UNPARSEABLE_JSON, str(exc))
+                raise ConnectorError(
+                    f"malformed Business Central response on {url}: body is not JSON"
+                ) from exc
+            self._validate_page(entity, url, payload)
+            return payload  # type: ignore[no-any-return]
         raise ConnectorError("unreachable: retry loop must return or raise")  # pragma: no cover
+
+    def _validate_page(self, entity: str, url: str, payload: object) -> None:
+        rows = payload.get("value") if isinstance(payload, dict) else None
+        if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+            self._quarantine_page(
+                entity,
+                url,
+                json.dumps(payload, default=str).encode("utf-8"),
+                RC_MALFORMED_PAGE,
+                "'value' must be a list of objects",
+            )
+            raise ConnectorError(
+                f"malformed Business Central page for {entity} at {url}: "
+                "'value' must be a list of objects"
+            )
+
+    def _quarantine_page(
+        self, entity: str, url: str, body: bytes, reason_code: str, detail: str
+    ) -> None:
+        file_name = f"{entity}-{uuid.uuid4().hex}.json"
+        target = self.config.quarantine_root / self.source.source_id / "api_pages" / file_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        self.store.record_quarantine(
+            QuarantineRecord(
+                source_id=self.source.source_id,
+                batch_id=None,
+                file_name=file_name,
+                reason_code=reason_code,
+                detail=f"{detail} (from {url})",
+                quarantine_path=str(target),
+                quarantined_at=datetime.now(UTC),
+            )
+        )
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
@@ -448,12 +676,38 @@ class DynamicsBcConnector(BaseConnector):
         self._token_expiry = time.time() + float(payload.get("expires_in", 3600))
         return self._cached_token
 
-    def _entity_url(self, entity_set: str) -> str:
+    def _entity_url(self, entity_set: str, company_id: str) -> str:
         settings = self.source.settings
+        api_version = settings.get("api_version") or "v2.0"
         return (
-            f"{BC_API_BASE}/{settings['environment']}/api/v2.0/"
-            f"companies({settings['company_id']})/{entity_set}"
+            f"{BC_API_BASE}/{settings['environment']}/api/{api_version}"
+            f"/companies({company_id})/{entity_set}"
         )
+
+    def _companies(self) -> list[str]:
+        """Configured company ids, in order, deduplicated — spec pitfall 3's loop."""
+        companies: list[str] = []
+        for token in self.source.settings.get("companies", "").split(","):
+            company_id = token.strip()
+            if company_id and company_id not in companies:
+                companies.append(company_id)
+        return companies
+
+    def _require_config(self) -> None:
+        """Fail closed BEFORE any network attempt — inert without credentials."""
+        problems = self.validate_config()
+        if problems:
+            raise ConnectorNotConfigured(
+                f"source {self.source.source_id} ({self.erp_id}) is not configurable: "
+                + "; ".join(problems)
+            )
+
+    def _current_page_size(self) -> int:
+        return self._page_size or self.PAGE_SIZE
+
+    def _shrink_page_size(self) -> None:
+        """Spec §5 504 handling: split the request into smaller ones."""
+        self._page_size = max(self._current_page_size() // 2, self.MIN_PAGE_SIZE)
 
     def _key_select(self, entity: str, mapping: BcEntity) -> str:
         """$select limited to the natural-key source fields (plus line keys)."""
