@@ -8,6 +8,7 @@ dashboard header legend, and the Superset runbook's probe-then-badge rule.
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from typing import Any
 
@@ -223,6 +224,86 @@ def test_runbook_tiles_are_badged_live_in_the_subheader() -> None:
     assert params["subheader"].startswith(f"{LIVE_KPI_MARKER} dbt mart")
     assert runbook.LIVE_KPI_MARKER == LIVE_KPI_MARKER  # one source of badge truth
     assert runbook.MOCK_KPI_MARKER == MOCK_KPI_MARKER
+
+
+def test_big_number_tiles_carry_both_metric_form_keys() -> None:
+    """big_number_total renders from the singular 'metric' form key while the
+    SPA's query builder reads the plural 'metrics' — a chart saved with only
+    one of them queries fine but displays the literal string 'undefined'."""
+    runbook = _load_runbook()
+    metric = runbook.simple("gmroi", "AVG", "GMROI")
+    params = runbook.tile_params(7, metric, ".2f")
+    assert params["metric"] == metric
+    assert params["metrics"] == [metric]
+
+
+def _stub_guard_api(
+    monkeypatch: pytest.MonkeyPatch, runbook: Any, saved_params: dict, data: Any
+) -> None:
+    def fake_api(method: str, path: str, **_kw: Any) -> Any:
+        if method == "GET":
+            return {"result": {"params": json.dumps(saved_params)}}
+        return data
+
+    monkeypatch.setattr(runbook, "api", fake_api)
+
+
+def _guard(monkeypatch: pytest.MonkeyPatch, runbook: Any, saved_params: dict, data: Any) -> None:
+    _stub_guard_api(monkeypatch, runbook, saved_params, data)
+    ids = {
+        name: i + 1
+        for i, (name, viz, *_r) in enumerate(runbook.CHARTS)
+        if viz == "big_number_total"
+    }
+    ds_map = {name: i + 100 for i, name in enumerate(runbook.VIRTUAL_DATASETS)}
+    ds_map.update({k: 200 + i for i, k in enumerate(runbook.PHYSICAL_DATASETS)})
+    runbook.assert_big_number_values(ids, ds_map)
+
+
+def test_value_guard_fails_closed_without_the_singular_metric_key(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The committed bug shape: metric saved only under plural 'metrics'."""
+    runbook = _load_runbook()
+    metric = runbook.simple("gmroi", "AVG", "GMROI")
+    saved = {"metric_missing": True, "metrics": [metric], "time_range": "No filter"}
+    data = {"result": [{"status": "success", "data": [{"GMROI": 1.73}]}]}
+    with pytest.raises(SystemExit, match="value-less big-number tiles"):
+        _guard(monkeypatch, runbook, saved, data)
+
+
+def test_value_guard_fails_closed_on_non_numeric_metric_value(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runbook = _load_runbook()
+    metric = runbook.simple("gmroi", "AVG", "GMROI")
+    saved = {"metric": metric, "metrics": [metric], "time_range": "No filter"}
+    for data in (
+        {"result": [{"status": "success", "data": [{"GMROI": None}]}]},
+        {"result": [{"status": "success", "data": [{"GMROI": "oops"}]}]},
+        {"result": [{"status": "failed", "data": []}]},
+        {"result": [{"status": "success", "data": []}]},
+    ):
+        with pytest.raises(SystemExit, match="no finite numeric value"):
+            _guard(monkeypatch, runbook, saved, data)
+
+
+def test_value_guard_passes_a_finite_numeric_metric(monkeypatch: pytest.MonkeyPatch) -> None:
+    runbook = _load_runbook()
+    metric = runbook.simple("gmroi", "AVG", "GMROI")
+    saved = {"metric": metric, "metrics": [metric], "time_range": "No filter"}
+    data = {"result": [{"status": "success", "data": [{"GMROI": 1.73}]}]}
+    _guard(monkeypatch, runbook, saved, data)  # must not exit
+
+
+def test_value_guard_treats_nan_and_bool_as_valueless(monkeypatch: pytest.MonkeyPatch) -> None:
+    runbook = _load_runbook()
+    metric = runbook.simple("gmroi", "AVG", "GMROI")
+    saved = {"metric": metric, "metrics": [metric], "time_range": "No filter"}
+    for value in (float("nan"), float("inf"), True):
+        data = {"result": [{"status": "success", "data": [{"GMROI": value}]}]}
+        with pytest.raises(SystemExit, match="no finite numeric value"):
+            _guard(monkeypatch, runbook, saved, data)
 
 
 def test_dashboard_header_declares_the_badge_legend() -> None:
