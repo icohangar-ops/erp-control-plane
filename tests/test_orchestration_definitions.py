@@ -31,6 +31,14 @@ def test_definitions_still_register_the_demo_extraction_assets() -> None:
     assert {"items", "invoice_lines"} <= demo_entities
 
 
+def test_extraction_assets_tag_erp_from_source_config() -> None:
+    """The staging ``erp`` tag is the source's erp value, not a hard-coded id."""
+    asset_def = assets_mod._one_extraction_asset("any_source", "items", "bistrack")
+    tags = asset_def.tags_by_key[AssetKey(["any_source", "items"])]
+    assert tags["erp"] == "bistrack"
+    assert tags["layer"] == "staging"
+
+
 def test_reconciliation_job_selection_includes_all_assets() -> None:
     jobs = {job.name: job for job in defs.jobs}
     assert "demo_job" in jobs

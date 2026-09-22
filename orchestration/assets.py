@@ -62,15 +62,15 @@ def _extraction_assets() -> list[AssetsDefinition]:
             continue
         connector = build_connector(source, config=_config(), store=open_store(_config()))
         for entity in connector.entities():
-            assets.append(_one_extraction_asset(source.source_id, entity))
+            assets.append(_one_extraction_asset(source.source_id, entity, source.erp))
     return assets
 
 
-def _one_extraction_asset(source_id: str, entity: str) -> AssetsDefinition:
+def _one_extraction_asset(source_id: str, entity: str, erp: str) -> AssetsDefinition:
     @asset(
         key=[source_id, entity],
         deps=[source_registry],
-        tags={"layer": "staging", "erp": "csv_sftp"},
+        tags={"layer": "staging", "erp": erp},
     )
     def _extract(context: AssetExecutionContext) -> MaterializeResult:
         config = _config()
