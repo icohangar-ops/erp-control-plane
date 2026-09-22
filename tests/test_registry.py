@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 
 from connectors.base import ConnectorError
+from connectors.legacy.informix import InformixConnector
 from connectors.registry import load_source_configs
 
 FIRST_WAVE = {
@@ -82,3 +83,25 @@ sources:
     )
     with pytest.raises(ConnectorError, match="duplicate source_id"):
         load_source_configs(yml)
+
+
+def test_informix_documentation_keeps_the_registry_contract():
+    """All-flavors coverage is documentation-only — the registry contract holds.
+
+    Per-flavor coverage (spec art_wGXFbs3x §7/§11) must not change the coded
+    path: required_settings stays the standalone ODBC trio, both informix
+    registrations ship disabled-first, and settings keep the ODBC shape (the
+    CP4D JDBC variant is gated on discovery item [D-1], not implemented).
+    """
+
+    assert InformixConnector.required_settings == (
+        "odbc_dsn",
+        "db_user",
+        "db_password",
+    )
+    by_id = {s.source_id: s for s in load_source_configs()}
+    for source_id in ("informix_demo", "informix_template"):
+        source = by_id[source_id]
+        assert source.enabled is False, f"{source_id} must ship disabled-first"
+        assert source.erp == "informix"
+        assert set(source.settings) == {"odbc_dsn", "db_user", "db_password"}

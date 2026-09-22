@@ -114,6 +114,93 @@ Sybase-style soft deletes: set `soft_delete_column` and `soft_delete_value`
 those rows so the anti-join never tombstones live keys. Hard deletes are
 reconciled by the anti-join below in every case.
 
+## IBM Informix (standalone ODBC implemented; per-flavor coverage documented)
+
+`connectors/legacy/informix/` is the primary legacy-database connector: one
+class (`InformixConnector`), one coded extraction path — ODBC batch via
+watermark on the shared `DbApiBatchConnector` engine (Informix Client SDK
+driver through pyodbc), fixture-tested offline via injected DB-API factories
+(`demo/run_informix_demo.py` stands in the transport end to end). **Never
+exercised against a live tenant.** Informix ships in three deployment
+flavors; all-flavors coverage is a documented matrix over that one class —
+a flavor is served by settings + onboarding discovery, never by a new
+connector class:
+
+| Extraction surface | F1 standalone 14.10/15.0.x | F2 CP4D/Software Hub cartridge | F3 standalone container (K8s/OCP) |
+|---|---|---|---|
+| ODBC (Client SDK via pyodbc) — **the coded path** | Documented — Client SDK in every purchasable edition | Not established — the cartridge documents MQTT/REST/MongoDB APIs only → [D-1] | Image-specific → [D-7] |
+| JDBC (Informix driver) | Documented | Expected (platform connections + credential vaults exist) but unconfirmed → [D-1] | Plausible, unconfirmed per image → [D-7] |
+| JDBC via IBM Data Server Driver (DRDA) | Documented | Not documented → [D-1] | Not established → [D-7] |
+| DRDA protocol (server listener) | Documented — needs a `sqlhosts` alias (`drsoctcp`/`drsslctcp`) + IBM Data Server Client | Not documented → [D-1] | Not established → [D-7] |
+| JSON wire listener (MongoDB API) | Documented — `jsonListener.jar` ships with the server | Documented on the service page | Not established per image → [D-7] |
+| REST API (wire listener, driverless) | Documented — SQL passthrough needs `security.sql.passthrough=true` | Documented on the service page | Not established per image → [D-7] |
+| Admin/monitoring REST (InformixHQ) | Product surface documented; extraction use unassessed → [D-9] | Not assessed → [D-2] | Bundling unconfirmed → [D-7] |
+| MQTT / OData | Documented | MQTT documented on the service page | Not established → [D-7] |
+
+Reading the matrix: the only served cell is **ODBC on F1**. The single
+consequential gap is F2 relational access [D-1] — never promise an ODBC DSN
+to a CP4D/Software Hub tenant. If [D-1] confirms JDBC-only connectivity, the
+planned variant mirrors `db2_iseries_template`'s `jdbc_url` + JayDeBeApi
+bridge (a settings/registry extension behind the same batch machinery, not a
+new class); building it speculatively is out of scope. F3 is expected to
+behave like F1 against the container's exposed listener, but every surface
+claim is image-specific until checked against the pinned image's
+containerized-deployments docs — fail closed until then [D-7].
+
+Per-flavor CDC posture (the engine substrate is the server-side Change Data
+Capture API over the logical log; Debezium consumes it through the
+**client-side** Change Streams API for Java, which ships with the Informix
+JDBC installation — Maven Central `com.ibm.informix:ifx-changestream-client`
+— so it is a Kafka Connect deployment concern, never an engine feature):
+
+- **F1 standalone** — every server-side prerequisite is administrable by the
+  site DBA (full-row logging via `cdc_set_fullrowlogging`, `syscdcv1.sql` run
+  as user `informix` from `$INFORMIXDIR/etc`, capture mode): CDC attach is a
+  configuration exercise, not a feasibility question. Legacy 12.10 estates:
+  pilot before promising [D-8].
+- **F2 cartridge** — no public documentation for tenant-runnable
+  `syscdcv1.sql`, full-row logging, capture mode, or logical-log retention:
+  assume no CDC until proven on-site [D-2]; batch-only default.
+- **F3 container** — operator-side CDC steps and Kafka Connect placement are
+  image- and site-specific [D-7].
+
+CDC stays documented-not-required (Debezium Informix is **"incubating"** —
+Debezium's own label, externally corroborated; `debezium_maturity` keeps it).
+
+### Onboarding discovery checklist (fail closed — confirm before design freeze)
+
+- **[D-1] CP4D/Software Hub connectivity matrix** (blocks F2 design): external
+  ODBC vs JDBC/REST/Mongo/MQTT only; cartridge engine version on the tenant's
+  Software Hub release; is the MQTT/REST/Mongo wording exhaustive. Fail
+  closed: plan JDBC-only for F2 until ODBC is proven.
+- **[D-2] CDC feasibility on managed CP4D**: tenant-runnable `syscdcv1.sql`,
+  full-row logging, capture mode, logical-log retention; any Debezium/IDR
+  attach precedent. Fail closed: assume no CDC on F2.
+- **[D-3] 14.10 standard-EOS date**: pull the lifecycle dates table /
+  announcement letter before any contractual claim.
+- **[D-4] 11.50/11.70 exact EOS dates**: verify on the IBM lifecycle UI.
+- **[D-5] Reconcile "CP4D Informix 14.10 EOL 2023"** against the specific
+  CP4D release lifecycle (cartridge EOM/EOS fields are blank); cite the
+  exact CP4D release EOS if used in a proposal.
+- **[D-6] 15.0.x Workgroup standalone lifecycle entry** (PID/date): confirm
+  the purchasable edition set at proposal time.
+- **[D-7] Standalone-container surface specifics** for the pinned image
+  version: exposed ports/listeners (ODBC/JDBC/DRDA/wire listener/REST), wire
+  listener and InformixHQ bundling, offline image delivery, operator CDC
+  steps. Source of truth: the pinned image's containerized-deployments docs
+  plus a hands-on pod test.
+- **[D-8] Debezium on a legacy 12.10 estate**: the support matrix includes
+  DB 12 with driver 15.0.1.1 ("in practice") — confirm the site's exact
+  12.10.xC level and Linux platform, and pilot before promising CDC.
+- **[D-9] InformixHQ / admin-REST scope**: enumerate what the Swagger/REST
+  surface exposes before assuming any extraction use beyond monitoring.
+
+The registry descriptions (`informix_template`, `informix_demo` in
+`connectors/sources.yml`) carry the same coverage one-liner. The settings
+contract is unchanged — `required_settings` stays the standalone ODBC trio
+(`odbc_dsn`, `db_user`, `db_password`); F2 settings would be added only when
+the [D-1] trigger fires, and the settings-parity fixture test pins that.
+
 ## BisTrack (ODBC implemented, Smart View documented plan)
 
 `connectors/bistrack/connector.py` rides the same `DbApiBatchConnector` engine
