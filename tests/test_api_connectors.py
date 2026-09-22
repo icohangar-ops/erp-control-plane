@@ -1029,12 +1029,46 @@ def test_p21_dry_run_without_network(tmp_path: Path) -> None:
     assert not connector.validate_config()
     surfaces = [entry["surface"] for entry in plan["entities"]]
     assert any("$top=500" in s for s in surfaces)  # $top is always set
+    notes = plan["entities"][0]["notes"]
+    assert "/api/security/token/v2" in notes  # token auth, not static headers
+    assert "delete_flag" in notes  # soft-delete filtering documented
+    assert "date_last_modified" in notes
 
 
 def test_p21_requires_base_url(tmp_path: Path) -> None:
     connector = _connector(tmp_path, EpicorP21Connector)
     problems = connector.validate_config()
     assert problems and "odata_base_url" in problems[0]
+
+
+def test_p21_disabled_first_without_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabled-first: without credentials the adapter validates to an honest
+    problem list, refuses registration and extraction before any network
+    attempt, and the registry template resolves to exactly that state."""
+    for var in ("P21_ODATA_URL", "P21_ODATA_USER", "P21_ODATA_PASSWORD", "P21_AS_OF_DATE"):
+        monkeypatch.delenv(var, raising=False)
+
+    connector = _connector(tmp_path, EpicorP21Connector)
+    assert isinstance(connector, EpicorP21Connector)
+    problems = connector.validate_config()
+    assert problems and "odata_base_url" in problems[0]
+
+    with pytest.raises(ConnectorNotConfigured):
+        connector.register()
+    with pytest.raises(ConnectorNotConfigured):
+        connector.extract("items")
+    assert connector._http_client is None  # no network machinery was ever built
+
+    # the registry template resolves all ${VAR:-} to empty and stays disabled
+    source = next(s for s in load_source_configs() if s.source_id == "epicor_p21_template")
+    assert source.enabled is False
+    assert source.settings["odata_user"] == ""
+    assert source.settings["odata_password"] == ""
+    template = _connector(tmp_path, EpicorP21Connector, settings=source.settings)
+    assert isinstance(template, EpicorP21Connector)
+    assert template.validate_config()  # honestly unconfigurable, exactly like the fixture
 
 
 # ---------------------------------------------------------------------------

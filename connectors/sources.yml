@@ -98,17 +98,17 @@ sources:
   - source_id: epicor_p21_template
     erp: epicor_p21
     description: >
-      Epicor Prophet 21 — OData v4 Data Services (cloud) with explicit $top
-      paging and watermark on date_last_modified. Coded to the documented
+      Epicor Prophet 21 — OData v4 Data Services (cloud) with middleware token
+      auth (/api/security/token/v2), soft-delete-flag filtering, and
+      deterministic $orderby/$top/$skip paging. Coded to the documented
       surface; UNEXERCISED pending tenant $metadata validation. On-prem sites
       should use the SQL Server connector against a read-only replica.
     enabled: false
     settings:
-      mode: ${P21_MODE:-sql}
-      sql_dsn: ${P21_SQL_DSN:-}
       odata_base_url: ${P21_ODATA_URL:-}
       odata_user: ${P21_ODATA_USER:-}
       odata_password: ${P21_ODATA_PASSWORD:-}
+      as_of_date: ${P21_AS_OF_DATE:-}
 
   - source_id: epicor_eclipse_template
     erp: epicor_eclipse
