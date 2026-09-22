@@ -207,6 +207,15 @@ VIRTUAL_DATASETS = {
     "kpi_long": KPI_LONG_SQL,
 }
 
+# name -> schema in the dealer warehouse. Every dataset the provisioning script
+# will create, physical and virtual, is enumerated here so the naming preflight
+# can vouch for all of them.
+PHYSICAL_DATASETS = {
+    "kpi_headline": "main_marts",
+    "fact_invoice_line": "main_canonical",
+}
+DATASET_NAMES = (*PHYSICAL_DATASETS, *VIRTUAL_DATASETS)
+
 
 def ensure_dataset(table_name, sql=None, schema=None):
     existing = find_one("/api/v1/dataset/", "table_name", table_name)
@@ -498,7 +507,14 @@ def ensure_dashboard(ids):
         "cross_filters_enabled": True,
         "positions": layout,
     }
-    layout_payload = {"json_metadata": json.dumps(json_metadata), "published": True}
+    # dashboard_title rides on every write, not just the create: a dashboard
+    # row previously saved as "Untitled" (UI-default or stale) must heal on the
+    # next provisioning run instead of keeping an untraceable title.
+    layout_payload = {
+        "dashboard_title": DASH_TITLE,
+        "json_metadata": json.dumps(json_metadata),
+        "published": True,
+    }
     existing = find_one("/api/v1/dashboard/", "slug", DASH_SLUG)
     if existing:
         dash_id = existing["id"]
@@ -529,15 +545,24 @@ def probe_mart(ds_map):
     must never render as a real KPI, so no tile is created from a data source
     that cannot be certified.
     """
+    ds_id = ds_map["kpi_headline"]
+    ds = api("GET", f"/api/v1/dataset/{ds_id}")["result"]
+    columns = [c["column_name"] for c in ds.get("columns", []) if c.get("column_name")]
+    if not columns:
+        sys.exit(
+            f"{MOCK_KPI_MARKER} kpi_headline dataset exposes no columns — refusing to"
+            " build KPI tiles from a source that cannot be certified"
+        )
+    # Superset >=4 rejects queries with no metrics, columns, and groupby
+    # ("Empty query?"), so the probe reads a real column at row_limit 1.
     res = api(
         "POST",
         "/api/v1/chart/data",
         json={
-            "datasource": {"id": ds_map["kpi_headline"], "type": "table"},
+            "datasource": {"id": ds_id, "type": "table"},
             "queries": [
                 {
-                    "metrics": [],
-                    "groupby": [],
+                    "columns": columns[:1],
                     "time_range": "No filter",
                     "filters": [],
                     "row_limit": 1,
@@ -598,13 +623,38 @@ def verify_charts(ids, ds_map):
         sys.exit(f"{failures} chart queries failed")
 
 
+def assert_explicit_names():
+    """Fail closed when any creatable object would be provisioned unnamed.
+
+    An unnamed dashboard, dataset, or slice renders as "Untitled" in Superset
+    UIs and screenshots; the dealer dashboard must never carry an untraceable
+    title, so provisioning refuses instead of guessing.
+    """
+    candidates = [
+        ("database", DB_NAME),
+        ("dashboard_title", DASH_TITLE),
+        ("dashboard slug", DASH_SLUG),
+    ]
+    candidates += [(f"dataset {name!r}", name) for name in DATASET_NAMES]
+    candidates += [
+        (f"chart {name!r} (CHARTS[{i}])", name) for i, (name, *_rest) in enumerate(CHARTS)
+    ]
+    offenders = [
+        label
+        for label, name in candidates
+        if not isinstance(name, str) or not name.strip() or name.strip() == "Untitled"
+    ]
+    if offenders:
+        sys.exit(f"refusing to provision unnamed or placeholder-titled objects: {offenders}")
+
+
 def main():
     global HEADERS, DB_ID
+    assert_explicit_names()
     HEADERS = login()
     DB_ID = ensure_database()
     ds_map = {
-        "kpi_headline": ensure_dataset("kpi_headline", schema="main_marts"),
-        "fact_invoice_line": ensure_dataset("fact_invoice_line", schema="main_canonical"),
+        name: ensure_dataset(name, schema=schema) for name, schema in PHYSICAL_DATASETS.items()
     }
     for name, sql in VIRTUAL_DATASETS.items():
         ds_map[name] = ensure_dataset(name, sql=sql)
