@@ -62,7 +62,8 @@ sources:
       token_id: ${NETSUITE_TOKEN_ID:-}
       token_secret: ${NETSUITE_TOKEN_SECRET:-}
       realm: ${NETSUITE_REALM:-}
-      api_version: ${NETSUITE_API_VERSION:-2024_1}
+      subsidiaries: ${NETSUITE_SUBSIDIARIES:-}
+      accounting_book_id: ${NETSUITE_ACCOUNTING_BOOK_ID:-}
 
   # ------------------------------------------------------------------
   # Documented skeletons — extraction surface noted, implementation deferred

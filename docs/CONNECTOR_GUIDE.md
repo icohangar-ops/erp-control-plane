@@ -125,9 +125,9 @@ audit). CDC-native connectors carry deletes in the change stream and declare
 asset skips them by design. Fixtures prove the delete scenario per transport
 in `tests/test_legacy_sql_connectors.py` and `tests/test_api_connectors.py`.
 
-## API connectors (Business Central, Prophet 21)
+## API connectors (Business Central, Prophet 21, NetSuite)
 
-Both are implemented against their documented surfaces and UNEXERCISED
+All three are implemented against their documented surfaces and UNEXERCISED
 against live tenants — validate field maps against `$metadata` at onboarding.
 Business Central (`connectors/d365_bc/`) loops the configured companies list
 (the `companies` setting — comma-separated ids; the only non-company-scoped
@@ -146,8 +146,20 @@ with a machine-readable reason and fail the run. Prophet 21
 (`connectors/epicor_p21/`) pages
 OData v4 with explicit `$top`/`$skip` (P21 emits no continuation links, so
 `$top` is always set), reads header-driven lines with an explicit FK
-`$filter`, and watermarks on `date_last_modified`. Both feed the same
-anti-join reconciliation as the SQL pack.
+`$filter`, and watermarks on `date_last_modified`. NetSuite
+(`connectors/netsuite/`) posts SuiteQL to the SuiteTalk REST endpoint with
+OAuth1 token auth, pages LIMIT/OFFSET at 200 rows (each query ORDERed by the
+entity's unique key so windows are deterministic), and honors `Retry-After`
+on 429/503/504. Watermarks ride `lastmodifieddate` (UTC audit stamp, never the
+`trandate` business date); the `subsidiaries` setting scopes OneWorld queries
+server-side and natural ids carry the row's subsidiary id (non-OneWorld
+accounts leave the setting empty), while `accounting_book_id` scopes the GL
+entries query on multi-book tenants. SuiteQL via REST returns a maximum of
+100,000 results per query, and the account concurrency limit (5/15/20 base
+concurrent requests by service tier, shared across SOAP/REST/RESTlet calls)
+governs the tenant — the adapter runs strictly sequentially. Malformed pages
+quarantine with a machine-readable reason and fail the run. All three feed the
+same anti-join reconciliation as the SQL pack.
 
 ## SAP HANA (SAP Business One on HANA)
 
