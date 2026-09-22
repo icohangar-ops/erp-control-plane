@@ -1,16 +1,16 @@
-# ERP Control Plane for Construction Supplies Distribution
+# ERP Control Plane
 
-A reusable, deployable data platform for a roll-up acquiring 2–3 building-
-materials dealers per month, each running a different ERP. Connectors isolate
-per-ERP extraction; one canonical model and one KPI catalog standardize the
-books; the control plane tracks sources, watermarks, crosswalks, and data
-quality. **Status: v0.1 — CSV/SFTP path works end to end; other ERPs are
+A reusable, deployable data platform for a roll-up acquiring 2–3 companies
+per month, each running a different ERP. Connectors isolate per-ERP
+extraction; one canonical model and one KPI catalog standardize the books;
+the control plane tracks sources, watermarks, crosswalks, and data quality.
+**Status: v0.1 — CSV/SFTP path works end to end; other ERPs are
 coded-but-unexercised adapters or documented skeletons (see maturity below).**
 
 ## Architecture (one screen)
 
 ```
-dealer ERPs ──connectors──▶ Parquet lake (staging, provenance-stamped)
+source ERPs ──connectors──▶ Parquet lake (staging, provenance-stamped)
                                 │
         control-plane store ◀───┤  registry · watermarks · file hashes ·
         (SQLite/Postgres)       │  quarantine · crosswalks · DQ results
@@ -33,15 +33,15 @@ no Docker.
 ```bash
 cp .env.example .env          # demo defaults are fine; no credentials needed
 make install                  # pip install pinned deps into your venv
-make demo                     # seeded dealer: extract → dbt build → KPI report
+make demo                     # seeded demo dataset: extract → dbt build → KPI report
 ```
 
-`make demo` runs the fictional **Ridgeline Lumber & Supply** dealer export
-through the real `csv_sftp` connector (manifest validation, checksums,
-idempotency), builds all dbt models + tests against DuckDB, and prints the
-20-KPI headline. Re-running it extracts 0 new rows (idempotent) and rebuilds
-the marts. Expected headline values: GMROI ≈ 1.73, turns ≈ 5.34, gross margin
-≈ 24%, line fill ≈ 91%.
+`make demo` runs the bundled deterministic demo dataset through the real
+`csv_sftp` connector (manifest validation, checksums, idempotency), builds
+all dbt models + tests against DuckDB, and prints the 20-KPI headline.
+Re-running it extracts 0 new rows (idempotent) and rebuilds the marts.
+Expected headline values: GMROI ≈ 1.73, turns ≈ 5.34, gross margin ≈ 24%,
+line fill ≈ 91%.
 
 Useful next commands:
 
@@ -62,7 +62,7 @@ make test && make lint
 | `control_plane/` | Registry/config/secrets plumbing; SQLite + Postgres stores |
 | `analytics/` | Superset datasets/SQL + RLS & embedding notes |
 | `demo/` | The end-to-end demo runner |
-| `seed/` | Deterministic seeded dealer export + manifest (checksums) |
+| `seed/` | Deterministic seeded demo dataset export + manifest (checksums) |
 | `scripts/` | Seed generator and utilities |
 | `tests/` | Connector contract suite (all sources), CSV/SFTP end-to-end, seed integrity |
 | `docs/` | ARCHITECTURE, DATA_MODEL, CONNECTOR_GUIDE, ONBOARDING_RUNBOOK |
@@ -87,7 +87,7 @@ Skeletons document the real extraction surface and stop at
 ## Onboarding a new acquisition
 
 [docs/ONBOARDING_RUNBOOK.md](docs/ONBOARDING_RUNBOOK.md) — day 1/30/60/90 per
-dealer: connect ERP → reconcile books → crosswalk masters → map COA →
+company: connect ERP → reconcile books → crosswalk masters → map COA →
 KPI sign-off → scheduled increments.
 
 ## Security notes
@@ -96,18 +96,18 @@ KPI sign-off → scheduled increments.
   config references `${VARS}` resolved from the environment.
 - Every row is provenance-stamped (`source_system`, `source_id`,
   `source_doc_no`/`source_line_no` on facts, `loaded_at`) for audit trails.
-- Superset deployments must configure RLS per dealer/branch
+- Superset deployments must configure RLS per tenant/branch
   (`analytics/README.md`).
 
-## Dealer KPI dashboard (Apache Superset)
+## KPI dashboard (Apache Superset)
 
-The Ridgeline dealer KPI dashboard, provisioned idempotently by
+The KPI dashboard, provisioned idempotently by
 [`analytics/superset/build_dashboard.py`](analytics/superset/build_dashboard.py)
 (start it with `make up BI=1`):
 
-![Ridgeline dealer KPI dashboard — headline tiles and charts](docs/assets/superset/dashboard-top.png)
+![KPI dashboard — headline tiles and charts](docs/assets/superset/dashboard-top.png)
 
-![Ridgeline dealer KPI dashboard — revenue and fill-rate charts](docs/assets/superset/dashboard-mid.png)
+![KPI dashboard — revenue and fill-rate charts](docs/assets/superset/dashboard-mid.png)
 
 ## GenBI evaluation (WrenAI + Ragas)
 
@@ -163,7 +163,7 @@ Endpoints: `GET /api/v1/genbi/decisions` (newest first) and
 
 ## Demo API (serverless-ready)
 
-`api/index.py` is a lean FastAPI + DuckDB API over the seeded dealer data — the
+`api/index.py` is a lean FastAPI + DuckDB API over the seeded demo data — the
 Vercel-deployable entrypoint for this repo (wired via `[tool.vercel] entrypoint`
 in `pyproject.toml`; serverless deps in `requirements.txt`). The heavy pipeline
 (Dagster, dbt, Superset, Postgres) is not deployed serverless — use Docker
