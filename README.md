@@ -77,7 +77,7 @@ make test && make lint
 | DMSi Agility | AgilityPublic REST (Session/Login) | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
 | Epicor Prophet 21 | SQL / OData | 📝 documented skeleton |
 | Epicor Eclipse | REST (Caché) | 📝 documented skeleton |
-| ECI Spruce / RockSolid MAX | SOAP + CSV fallback | 📝 documented skeleton |
+| ECI Spruce / RockSolid MAX | CSV/pipe file drop (manifest-gated) · SOAP Ecommerce API NDA-gated | ⚙️ coded, fixture-tested, dealer-onboarding-gated; **never exercised against a live dealer** |
 | Dynamics 365 BC | API v2 + BACPAC backfill | 📝 documented skeleton |
 
 Skeletons document the real extraction surface and stop at
