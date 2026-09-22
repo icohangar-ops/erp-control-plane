@@ -121,13 +121,30 @@ sources:
   - source_id: epicor_eclipse_template
     erp: epicor_eclipse
     description: >
-      Epicor Eclipse — REST-only API over InterSystems Caché; skeleton pending
-      API user provisioning on the tenant.
+      Epicor Eclipse — REST-only API over InterSystems Caché: session-token
+      auth (POST /Sessions mints sessionToken + refreshToken;
+      /SessionRefresh recovers an expired-but-not-deleted session — the
+      sessionToken rides the tenant-pinned token header), query-param paging,
+      updatedAfter watermarks, dated inventory sweeps, GL via
+      GLInquiryDetail. Coded to the documented surface (spec art_Hp74a48b);
+      UNEXERCISED pending tenant API-doc discovery. The session/paging wire
+      contract is per-tenant ([D] — fail-closed REQUIRED settings below); no
+      /Invoices endpoint exists, so invoice lines stay a documented
+      hybrid-channel plan.
     enabled: false
     settings:
       base_url: ${ECLIPSE_BASE_URL:-}
       username: ${ECLIPSE_USERNAME:-}
       password: ${ECLIPSE_PASSWORD:-}
+      session_user_field: ${ECLIPSE_SESSION_USER_FIELD:-}
+      session_password_field: ${ECLIPSE_SESSION_PASSWORD_FIELD:-}
+      token_header: ${ECLIPSE_TOKEN_HEADER:-}
+      watermark_field: ${ECLIPSE_WATERMARK_FIELD:-}
+      page_size_param: ${ECLIPSE_PAGE_SIZE_PARAM:-}
+      page_number_param: ${ECLIPSE_PAGE_NUMBER_PARAM:-}
+      page_number_start: ${ECLIPSE_PAGE_NUMBER_START:-}
+      page_size: ${ECLIPSE_PAGE_SIZE:-}
+      go_live_date: ${ECLIPSE_GO_LIVE_DATE:-}
 
   - source_id: eci_spruce_template
     erp: eci_spruce
