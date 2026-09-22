@@ -1,9 +1,9 @@
-"""Fixture-based tests for the API connectors: Business Central + Prophet 21.
+"""Fixture-based tests for the API connectors: Business Central + Prophet 21 + NetSuite.
 
-Both connectors are coded against their documented API surface but are
+All three connectors are coded against their documented API surfaces but are
 UNEXERCISED against live tenants — these tests prove the documented behaviors
 (paging, backoff, flattening, key inventory, anti-join reconciliation) against
-httpx MockTransport fixtures, which is the CI-required ingestion shape per the
+httpx.MockTransport fixtures, which is the CI-required ingestion shape per the
 spec. No live ERP connection is ever made.
 """
 
@@ -13,6 +13,7 @@ import json
 import time
 from collections.abc import Callable
 from dataclasses import replace
+from datetime import UTC, datetime
 from pathlib import Path
 
 import httpx
@@ -23,12 +24,14 @@ from connectors.base import (
     ConnectorError,
     ConnectorNotConfigured,
     ExtractionMode,
+    natural_id_for,
 )
 from connectors.d365_bc.connector import DynamicsBcConnector
 from connectors.epicor_p21.connector import EpicorP21Connector
+from connectors.netsuite.connector import NetsuiteConnector
 from connectors.registry import load_source_configs
 from control_plane.config import ControlPlaneConfig
-from control_plane.models import SourceConfig
+from control_plane.models import SourceConfig, SyncCheckpoint
 from control_plane.store import SqliteControlPlaneStore
 
 
@@ -719,6 +722,454 @@ def test_p21_requires_base_url(tmp_path: Path) -> None:
     connector = _connector(tmp_path, EpicorP21Connector)
     problems = connector.validate_config()
     assert problems and "odata_base_url" in problems[0]
+
+
+# ---------------------------------------------------------------------------
+# NetSuite: LIMIT/OFFSET paging, watermark checkpoints, scoping, reconciliation
+# ---------------------------------------------------------------------------
+
+
+NS_SETTINGS = {
+    "account_id": "1234567",
+    "consumer_key": "fixture-consumer-key",
+    "consumer_secret": "fixture-consumer-secret",
+    "token_id": "fixture-token-id",
+    "token_secret": "fixture-token-secret",
+    "realm": "1234567",
+    "subsidiaries": "",
+    "accounting_book_id": "",
+}
+
+
+def _netsuite_connector(
+    tmp_path: Path, settings: dict[str, str] | None = None
+) -> NetsuiteConnector:
+    connector = _connector(
+        tmp_path, NetsuiteConnector, settings={**NS_SETTINGS, **(settings or {})}
+    )
+    assert isinstance(connector, NetsuiteConnector)
+    return connector
+
+
+def _suiteql_page(rows: list[dict[str, object]]) -> httpx.Response:
+    return _json_response({"items": rows, "hasMore": False})
+
+
+def _ns_q(request: httpx.Request) -> str:
+    """The SuiteQL query text a fixture request carried (POST body ``q``)."""
+    body = json.loads(request.content)
+    assert isinstance(body["q"], str)
+    return str(body["q"])
+
+
+def _ns_row(entity: str, suffix: str) -> dict[str, object]:
+    """One minimal canonical row: natural-key fields plus the audit stamp."""
+    row: dict[str, object] = {
+        "items": {"item_no": f"ITEM-{suffix}"},
+        "customers": {"subsidiary_id": "1", "customer_no": f"CUST-{suffix}"},
+        "vendors": {"subsidiary_id": "1", "vendor_no": f"V-{suffix}"},
+        "sales_order_lines": {"subsidiary_id": "1", "order_no": f"SO-{suffix}", "line_no": 1},
+        "invoice_lines": {"subsidiary_id": "1", "invoice_no": f"IN-{suffix}", "line_no": 1},
+        "inventory_snapshots": {
+            "snapshot_date": "2026-08-01",
+            "branch_code": "1",
+            "item_no": f"ITEM-{suffix}",
+        },
+        "gl_entries": {
+            "subsidiary_id": "1",
+            "accounting_book_id": "1",
+            "journal_no": f"J-{suffix}",
+            "line_no": 11,
+        },
+    }[entity]
+    if entity != "inventory_snapshots":
+        row["last_modified"] = "2026-08-02T10:00:00Z"
+    return row
+
+
+def test_ns_extraction_plans_cover_all_seven_entities(tmp_path: Path) -> None:
+    connector = _netsuite_connector(tmp_path)
+    plan = connector.dry_run()
+    assert plan["source_id"] == "netsuite_template"
+    assert not connector.validate_config()  # fixture credentials resolve
+    entities = {entry["entity"]: entry for entry in plan["entities"]}
+    assert set(entities) == {
+        "items",
+        "customers",
+        "vendors",
+        "sales_order_lines",
+        "invoice_lines",
+        "inventory_snapshots",
+        "gl_entries",
+    }
+    # every plan rides the SuiteQL surface; scoping visibility per table kind
+    assert all(
+        entry["surface"].startswith("SuiteQL POST /services/rest/query/v1/suiteql")
+        for entry in entities.values()
+    )
+    assert "all subsidiaries" in entities["vendors"]["surface"]
+    assert "all accounting books" in entities["gl_entries"]["surface"]
+    assert "scoped" not in entities["items"]["surface"]  # item is global
+    # the subsidiary-scoped entities watermark on the UTC audit stamp...
+    assert entities["vendors"]["incremental_key"] == "vendor.lastmodifieddate"
+    assert entities["sales_order_lines"]["incremental_key"] == "t.lastmodifieddate"
+    # ...while the inventory snapshot is a per-run full restage (no watermark)
+    assert entities["inventory_snapshots"]["incremental_key"] is None
+    # documented service limits ride every plan's notes (blueprint §4)
+    for entry in entities.values():
+        assert "100,000" in entry["notes"]
+        assert "5/15/20" in entry["notes"]
+    # per-entity caveats: item globality and multi-book GL duplication
+    assert "global" in entities["items"]["notes"]
+    assert "accounting book" in entities["gl_entries"]["notes"]
+
+
+def test_ns_every_entity_extracts_under_fixtures(tmp_path: Path) -> None:
+    """The full first-wave surface: all seven entities extract, stamp, and land
+    in Parquet under MockTransport — nothing raises 'no SuiteQL query yet'."""
+    connector = _netsuite_connector(tmp_path)
+    for entity in connector.entities():
+        calls: list[httpx.Request] = []
+        transport = httpx.MockTransport(
+            _routing_handler({"/suiteql": [_suiteql_page([_ns_row(entity, "0001")])]}, calls)
+        )
+        connector._http_client = httpx.Client(transport=transport)
+
+        result = connector.extract(entity)
+
+        assert result.rows_extracted == 1, entity
+        table = pq.read_table(result.parquet_path)
+        assert table.column("source_system").to_pylist() == ["netsuite"]
+        assert table.column("source_id").to_pylist() == [
+            natural_id_for(connector.natural_key_fields[entity], _ns_row(entity, "0001"))
+        ]
+
+
+def test_ns_limit_offset_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    connector = _netsuite_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    page_1 = [
+        {"item_no": "ITEM-0001", "last_modified": "2026-08-01T10:00:00Z"},
+        {"item_no": "ITEM-0002", "last_modified": "2026-08-01T09:00:00Z"},
+    ]
+    page_2 = [{"item_no": "ITEM-0003", "last_modified": "2026-08-01T08:00:00Z"}]
+    transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [_suiteql_page(page_1), _suiteql_page(page_2)]}, calls)
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    monkeypatch.setattr(NetsuiteConnector, "PAGE_SIZE", 2)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 3
+    assert len(calls) == 2
+    queries = [_ns_q(c) for c in calls]
+    # LIMIT/OFFSET windows advance by the page size; the query is ORDERed by
+    # the entity's unique key so windows are deterministic
+    assert queries[0].startswith("SELECT item.itemid AS item_no")
+    assert "ORDER BY item.itemid" in queries[0]
+    assert queries[0].endswith("LIMIT 2 OFFSET 0")
+    assert queries[1].endswith("LIMIT 2 OFFSET 2")
+
+
+def test_ns_watermark_advancement_is_the_cross_page_max(tmp_path: Path) -> None:
+    """The checkpoint is the max lastmodifieddate observed across ALL pages,
+    compared as parsed instants — mixed-precision stamps (.6Z vs .603Z) must
+    not let a lexically-larger-but-earlier stamp win (BC pitfall 5 parity)."""
+    connector = _netsuite_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/suiteql": [
+                    _suiteql_page(
+                        [
+                            {"item_no": "ITEM-0001", "last_modified": "2026-08-02T10:00:00.6Z"},
+                            {"item_no": "ITEM-0002", "last_modified": "2026-08-01T09:00:00Z"},
+                        ]
+                    ),
+                    _suiteql_page(
+                        [{"item_no": "ITEM-0003", "last_modified": "2026-08-02T10:00:00.603Z"}]
+                    ),
+                ]
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    monkeypatch = pytest.MonkeyPatch()
+    monkeypatch.setattr(NetsuiteConnector, "PAGE_SIZE", 2)
+    try:
+        result = connector.extract("items", ExtractionMode.INCREMENTAL)
+    finally:
+        monkeypatch.undo()
+
+    assert result.rows_extracted == 3
+    assert result.watermark_after == "2026-08-02T10:00:00.603Z"
+
+
+def test_ns_incremental_restart_is_a_no_op(tmp_path: Path) -> None:
+    """Re-running incremental at the stored checkpoint extracts nothing: the
+    checkpoint rides the query as a strict-gt literal, the run advances
+    nothing, and the previous staging file survives untouched."""
+    first = _netsuite_connector(tmp_path)
+    first_transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/suiteql": [
+                    _suiteql_page(
+                        [
+                            {"item_no": "ITEM-0001", "last_modified": "2026-08-02T10:00:00.6Z"},
+                            {
+                                "item_no": "ITEM-0002",
+                                "last_modified": "2026-08-02T10:00:00.603Z",
+                            },
+                        ]
+                    )
+                ]
+            },
+            [],
+        )
+    )
+    first._http_client = httpx.Client(transport=first_transport)
+
+    result = first.extract("items", ExtractionMode.INCREMENTAL)
+    assert result.rows_extracted == 2
+    assert result.watermark_after == "2026-08-02T10:00:00.603Z"
+
+    second = _netsuite_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    second_transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [_suiteql_page([])]}, calls)
+    )
+    second._http_client = httpx.Client(transport=second_transport)
+
+    result_2 = second.extract("items", ExtractionMode.INCREMENTAL)
+
+    assert result_2.rows_extracted == 0
+    assert result_2.watermark_after == "2026-08-02T10:00:00.603Z"
+    assert "item.lastmodifieddate > '2026-08-02T10:00:00.603Z'" in _ns_q(calls[0])
+    # the zero-row run must not have rewritten (or emptied) the staging file
+    assert len(pq.read_table(result.parquet_path).column("source_id").to_pylist()) == 2
+
+
+def test_ns_refuses_to_interpolate_an_unparseable_watermark(tmp_path: Path) -> None:
+    """The stored checkpoint is interpolated into SuiteQL — a garbage value is
+    rejected before any request is built, never filtered wrongly or injected."""
+    connector = _netsuite_connector(tmp_path)
+    connector.store.upsert_watermark(
+        SyncCheckpoint(
+            source_id=connector.source.source_id,
+            entity="items",
+            mode="incremental",
+            watermark="2026-08-02T10:00:00Z' OR 1=1 --",
+            updated_at=datetime.now(UTC),
+        )
+    )
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(_routing_handler({"/suiteql": []}, calls))
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="unparseable"):
+        connector.extract("items", ExtractionMode.INCREMENTAL)
+
+    assert calls == []  # no network attempt on a failed watermark validation
+
+
+def test_ns_quarantines_malformed_page(tmp_path: Path) -> None:
+    """A structurally malformed page is quarantined with a machine-readable
+    reason and fails the run — never a silent drop, never a partial promote."""
+    connector = _netsuite_connector(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [_json_response({"items": "not-a-list"})]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="malformed"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    record = records[0]
+    assert record.reason_code == "MALFORMED_PAGE"
+    assert record.source_id == "netsuite_template"
+    assert json.loads(Path(record.quarantine_path).read_text(encoding="utf-8")) == {
+        "items": "not-a-list"
+    }
+    # a failed run never advances a checkpoint
+    assert connector.store.get_watermark(connector.source.source_id, "items", "backfill") is None
+
+
+def test_ns_quarantines_unparseable_json(tmp_path: Path) -> None:
+    connector = _netsuite_connector(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [httpx.Response(200, content=b"<html>gateway</html>")]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="not JSON"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    assert records[0].reason_code == "UNPARSEABLE_JSON"
+    assert Path(records[0].quarantine_path).read_bytes().startswith(b"<html>")
+
+
+def test_ns_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
+    """Spec §6 cross-cutting rule, subsidiary-scoped: the anti-join tombstones
+    per subsidiary — V-1001 deleted in subsidiary 1 must not tombstone
+    subsidiary 2's V-1001, which shares the entity id."""
+    connector = _netsuite_connector(tmp_path, settings={"subsidiaries": "1,2"})
+    calls: list[httpx.Request] = []
+    vendors = [_ns_row("vendors", "1000"), _ns_row("vendors", "1001")]
+    subs1_after = []  # subsidiary 1 deleted both its vendors
+    subs2_after = [{**_ns_row("vendors", "1001"), "subsidiary_id": "2"}]
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/suiteql": [
+                    _suiteql_page(vendors),  # extract: both subsidiaries' vendors
+                    _suiteql_page(subs1_after),  # key scan, subsidiary 1: empty now
+                    _suiteql_page(subs2_after),  # key scan, subsidiary 2: V-1001 remains
+                ]
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    connector.extract("vendors")
+    result = connector.reconcile_deletes("vendors")
+
+    assert result.tombstoned_keys == ("1:V-1000", "1:V-1001")
+    key_scan_q = _ns_q(calls[-1])
+    # the key scan is key-only — no full-row columns — and carries the scope
+    assert "vendor.entityid AS vendor_no" in key_scan_q
+    assert "vendor.companyname" not in key_scan_q
+    assert "vendor.subsidiary IN ('1', '2')" in key_scan_q
+
+
+def test_ns_subsidiary_scoping_predicate(tmp_path: Path) -> None:
+    """The subsidiaries setting scopes queries server-side: parsed, deduplicated,
+    order-preserved, quote-escaped."""
+    connector = _netsuite_connector(tmp_path, settings={"subsidiaries": "2, 1, 2"})
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [_suiteql_page([_ns_row("vendors", "1000")])]}, calls)
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("vendors")
+
+    assert result.rows_extracted == 1
+    assert "vendor.subsidiary IN ('2', '1')" in _ns_q(calls[0])
+
+
+def test_ns_accounting_book_scoping(tmp_path: Path) -> None:
+    """Multi-book GL: the accounting_book_id setting scopes the query and the
+    book id rides the natural id so per-book lines never collide."""
+    connector = _netsuite_connector(tmp_path, settings={"accounting_book_id": "3"})
+    calls: list[httpx.Request] = []
+    row = {
+        "journal_no": "J-1000",
+        "line_no": 11,
+        "entry_date": "2026-08-01",
+        "account": "1100",
+        "debit_amt": 100.0,
+        "credit_amt": 0.0,
+        "subsidiary_id": "1",
+        "accounting_book_id": "3",
+        "last_modified": "2026-08-02T10:00:00Z",
+    }
+    transport = httpx.MockTransport(_routing_handler({"/suiteql": [_suiteql_page([row])]}, calls))
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("gl_entries")
+
+    assert result.rows_extracted == 1
+    assert "tal.accountingbookid = '3'" in _ns_q(calls[0])
+    table = pq.read_table(result.parquet_path)
+    assert table.column("source_id").to_pylist() == ["1:3:J-1000:11"]
+
+
+def test_ns_backoff_honors_retry_after(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    connector = _netsuite_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/suiteql": [
+                    httpx.Response(429, headers={"Retry-After": "0"}),
+                    httpx.Response(503),  # no Retry-After -> exponential fallback
+                    _suiteql_page([_ns_row("items", "0001")]),
+                ]
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    slept: list[float] = []
+    monkeypatch.setattr(time, "sleep", slept.append)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    assert len(calls) == 3
+    assert 0.0 in slept  # Retry-After honored; exponential doubling follows
+
+
+def test_ns_backoff_gives_up_after_max_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connector = _netsuite_connector(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/suiteql": [httpx.Response(429) for _ in range(6)]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    with pytest.raises(ConnectorError, match="after 5 backoff attempts"):
+        connector.extract("items")
+
+
+def test_ns_disabled_first_without_credentials(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Disabled-first: without credentials the adapter validates to an honest
+    problem list, refuses registration and extraction before any network
+    attempt, and the registry template resolves to exactly that state."""
+    for var in (
+        "NETSUITE_ACCOUNT_ID",
+        "NETSUITE_CONSUMER_KEY",
+        "NETSUITE_CONSUMER_SECRET",
+        "NETSUITE_TOKEN_ID",
+        "NETSUITE_TOKEN_SECRET",
+        "NETSUITE_REALM",
+        "NETSUITE_SUBSIDIARIES",
+        "NETSUITE_ACCOUNTING_BOOK_ID",
+    ):
+        monkeypatch.delenv(var, raising=False)
+
+    connector = _connector(tmp_path, NetsuiteConnector)
+    assert isinstance(connector, NetsuiteConnector)
+    problems = connector.validate_config()
+    assert problems and "account_id" in problems[0]
+
+    with pytest.raises(ConnectorNotConfigured):
+        connector.register()
+    with pytest.raises(ConnectorNotConfigured):
+        connector.extract("items")
+    assert connector._http_client is None  # no network machinery was ever built
+
+    # the registry template resolves all ${VAR:-} to empty and stays disabled
+    source = next(s for s in load_source_configs() if s.source_id == "netsuite_template")
+    assert source.enabled is False
+    assert source.settings["subsidiaries"] == ""
+    assert source.settings["accounting_book_id"] == ""
+    template = _connector(tmp_path, NetsuiteConnector, settings=source.settings)
+    assert isinstance(template, NetsuiteConnector)
+    assert template.validate_config()  # honestly unconfigurable, exactly like the fixture
 
 
 # ---------------------------------------------------------------------------
