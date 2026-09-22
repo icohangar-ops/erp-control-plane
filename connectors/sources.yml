@@ -89,13 +89,19 @@ sources:
   - source_id: dmsi_agility_template
     erp: dmsi_agility
     description: >
-      DMSi Agility — REST API extraction; skeleton pending tenant sandbox
-      access and endpoint inventory.
+      DMSi Agility — AgilityPublic REST extraction: Session/Login context
+      (ContextId/Branch headers), chunk-pointer paging, customer-scoped orders
+      and invoices, dated inventory snapshots; GL and PO lists stay documented
+      hybrid-channel plans (spec art_4U49qR1B).
     enabled: false
     settings:
-      base_url: ${DMSI_BASE_URL:-}
-      client_id: ${DMSI_CLIENT_ID:-}
-      client_secret: ${DMSI_CLIENT_SECRET:-}
+      api_url: ${DMSI_API_URL:-}
+      login_id: ${DMSI_LOGIN_ID:-}
+      password: ${DMSI_PASSWORD:-}
+      customers: ${DMSI_CUSTOMERS:-}
+      go_live_date: ${DMSI_GO_LIVE_DATE:-}
+      record_fetch_limit: ${DMSI_RECORD_FETCH_LIMIT:-500}
+      invoice_window_days: ${DMSI_INVOICE_WINDOW_DAYS:-14}
 
   - source_id: epicor_p21_template
     erp: epicor_p21

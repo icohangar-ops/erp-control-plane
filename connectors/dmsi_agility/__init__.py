@@ -1,4 +1,4 @@
-"""dmsi_agility — DMSi Agility ERP connector (documented skeleton)."""
+"""dmsi_agility — DMSi Agility ERP connector (AgilityPublic REST)."""
 
 from connectors.dmsi_agility.connector import DmsiAgilityConnector
 
