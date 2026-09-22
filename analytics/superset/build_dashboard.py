@@ -36,6 +36,7 @@ Environment overrides:
 """
 
 import json
+import math
 import os
 import sqlite3
 import sys
@@ -250,6 +251,15 @@ def tile_params(ds_id, metric, fmt, badge_marker=LIVE_KPI_MARKER):
     return {
         "datasource": f"{ds_id}__table",
         "viz_type": "big_number_total",
+        # big_number_total reads its metric from the SINGULAR form key at
+        # render time, while the SPA's query builder reads the plural one.
+        # A chart saved with only "metrics" runs a perfectly good query
+        # (correctly labeled, numeric rows) yet renders the literal string
+        # 'undefined' — the exact bug that blanked the four headline tiles
+        # in every committed screenshot. Keep both keys pointing at the
+        # same metric; assert_big_number_values refuses to provision a tile
+        # missing either side of this contract.
+        "metric": metric,
         "metrics": [metric],
         "groupby": [],
         "time_range": "No filter",
@@ -306,13 +316,13 @@ CHARTS = [
         "Gross margin %",
         "big_number_total",
         "kpi_headline",
-        tile_params(0, simple("gross_margin_pct", "AVG", "Gross margin %"), ".1f"),
+        tile_params(0, simple("gross_margin_pct", "AVG", "Gross margin %"), ".2%"),
     ),
     (
         "Line fill rate %",
         "big_number_total",
         "kpi_headline",
-        tile_params(0, simple("line_fill_rate", "AVG", "Line fill rate %"), ".1f"),
+        tile_params(0, simple("line_fill_rate", "AVG", "Line fill rate %"), ".2%"),
     ),
     (
         "Monthly invoiced revenue",
@@ -648,6 +658,67 @@ def assert_explicit_names():
         sys.exit(f"refusing to provision unnamed or placeholder-titled objects: {offenders}")
 
 
+def assert_big_number_values(ids, ds_map):
+    """Fail closed when a big-number tile would render a value-less metric.
+
+    The 'undefined' bug shape: the chart's saved params carried the metric
+    under a key the viz does not read at render time, so the query succeeded
+    (status=success, correctly labeled numeric rows) while the tile displayed
+    the literal string 'undefined'. A row-level preflight cannot catch that —
+    this guard checks the contract the viz actually depends on, reading the
+    SAVED chart params from the API (server state, not this file) and
+    requiring (a) the singular `metric` form key big_number_total reads,
+    and (b) a finite numeric value for that metric's label from the
+    chart-data endpoint.
+    """
+    failures = []
+    for name, viz, _ds_key, _params in CHARTS:
+        if viz != "big_number_total":
+            continue
+        cid = ids[name]
+        saved = json.loads(api("GET", f"/api/v1/chart/{cid}")["result"]["params"])
+        metric = saved.get("metric")
+        label = metric.get("label") if isinstance(metric, dict) else None
+        if not isinstance(label, str) or not label.strip():
+            failures.append(
+                f"chart {name!r}: saved params have no singular 'metric' — the viz renders 'undefined'"
+            )
+            continue
+        query = {
+            "metrics": [metric],
+            "groupby": [],
+            "time_range": saved.get("time_range", "No filter"),
+            "filters": [],
+            "row_limit": saved.get("row_limit", 100),
+        }
+        res = api(
+            "POST",
+            "/api/v1/chart/data",
+            json={
+                "datasource": {"id": ds_map[_ds_key], "type": "table"},
+                "queries": [query],
+                "result_format": "json",
+                "result_type": "full",
+            },
+        )
+        result = res["result"][0]
+        rows = result.get("data") or []
+        value = rows[0].get(label) if rows else None
+        numeric = (
+            isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+        )
+        if result.get("status") != "success" or not rows or not numeric:
+            failures.append(
+                f"chart {name!r}: metric {label!r} has no finite numeric value"
+                f" (status={result.get('status')!r}, value={value!r})"
+            )
+    if failures:
+        sys.exit(
+            "refusing to provision value-less big-number tiles (would render 'undefined')"
+            f": {'; '.join(failures)}"
+        )
+
+
 def main():
     global HEADERS, DB_ID
     assert_explicit_names()
@@ -660,6 +731,9 @@ def main():
         ds_map[name] = ensure_dataset(name, sql=sql)
     probe_mart(ds_map)  # honest badges: LIVE is earned before any tile exists
     ids = ensure_charts(ds_map)
+    # Refuse before the dashboard is (re)written: a value-less tile must
+    # never reach a committed screenshot.
+    assert_big_number_values(ids, ds_map)
     dash_id = ensure_dashboard(ids)
     verify_charts(ids, ds_map)
     print(
