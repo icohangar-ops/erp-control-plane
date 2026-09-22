@@ -38,6 +38,12 @@ sources:
       Ridgeline Lumber & Supply — demo Informix surface (seed dealer export
       loaded into a stand-in Informix-shaped database). Demonstrates the
       legacy SQL connector pack end to end per the GenBI spec §5 row 1.
+      Per-flavor coverage: ODBC batch primary for standalone 14.10/15.0 (and
+      the container flavor pending image discovery [D-7]); JDBC variant
+      planned for CP4D/Software Hub, gated on discovery [D-1]; CDC
+      documented-not-required (Debezium Informix "incubating" — externally
+      corroborated). Coded path is standalone ODBC only — never exercised
+      against a live tenant; discovery checklist: docs/CONNECTOR_GUIDE.md.
     enabled: false
     settings:
       odbc_dsn: "ifx_demo_standin"
