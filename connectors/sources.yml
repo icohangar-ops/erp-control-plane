@@ -132,15 +132,21 @@ sources:
   - source_id: eci_spruce_template
     erp: eci_spruce
     description: >
-      ECI Spruce / RockSolid MAX — SOAP web services (RockSolid) or CSV export
-      fallback (Spruce); skeleton pending vendor account and WSDL review.
+      ECI Spruce / RockSolid MAX — dealer-mediated file drop: scheduled-report /
+      cloud-folder exports (CSV or RSM pipe layout) with a manifest control
+      file (checksums, row counts, generation stamps). Coded to the documented
+      file surfaces; UNEXERCISED pending dealer onboarding. The SOAP Ecommerce
+      API stays NDA-gated future work (spec art_ktSh9Z8x §2/§8). Product,
+      hosting, and layout pin at onboarding ([D] — fail-closed REQUIRED
+      settings below).
     enabled: false
     settings:
-      product: ${ECI_PRODUCT:-spruce}
-      wsdl_url: ${ECI_WSDL_URL:-}
-      username: ${ECI_USERNAME:-}
-      password: ${ECI_PASSWORD:-}
+      product: ${ECI_PRODUCT:-}
+      hosting: ${ECI_HOSTING:-}
+      layout_profile: ${ECI_LAYOUT_PROFILE:-}
       csv_drop_root: ${ECI_CSV_DROP_ROOT:-}
+      allow_additive_columns: "true"
+      quarantine_dir: ${ECI_QUARANTINE_DIR:-}
 
   - source_id: d365_bc_template
     erp: d365_bc
