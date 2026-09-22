@@ -74,7 +74,7 @@ make test && make lint
 | Generic CSV/SFTP | files + manifest | ✅ working end to end (demo + tests) |
 | NetSuite | SuiteQL / TBA | ⚙️ coded, credential-gated, `--dry-run`; **never exercised against a live tenant** |
 | BisTrack | read-only SQL/ODBC · Smart View API | 📝 documented skeleton (dual mode) |
-| DMSi Agility | REST | 📝 documented skeleton |
+| DMSi Agility | AgilityPublic REST (Session/Login) | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
 | Epicor Prophet 21 | SQL / OData | 📝 documented skeleton |
 | Epicor Eclipse | REST (Caché) | 📝 documented skeleton |
 | ECI Spruce / RockSolid MAX | SOAP + CSV fallback | 📝 documented skeleton |
