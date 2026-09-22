@@ -209,6 +209,44 @@ governs the tenant — the adapter runs strictly sequentially. Malformed pages
 quarantine with a machine-readable reason and fail the run. All three feed the
 same anti-join reconciliation as the SQL pack.
 
+## DMSi Agility (AgilityPublic REST)
+
+`connectors/dmsi_agility/` implements the documented AgilityPublic surface:
+per-dealer HTTPS API URL tied to that dealer's database, a dealer-created
+integration user (no API keys or OAuth exist), and `Session/Login` issuing the
+`SessionContextId` whose `ContextId` + `Branch` headers ride every data call.
+Contexts expire unused (4 h default, 24 h max, dealer-configurable) — the
+adapter assumes no TTL: one context rejection re-logins and restarts that
+entity's chunk walk from pointer 0 (chunk state is server-side per method run,
+spec §4), a second rejection fails the run, and the walked entity dedupes by
+natural id so the restart never double-stages rows. Paging walks
+`ChunkStartPointer` ← `NextChunkStartPointer` until `MoreResultsAvailable` is
+false with `RecordFetchLimit` starting at the Appian-tuned 500 (per-dealer
+chunk ceilings live in the dealer's System Config and are invisible until
+discovery). Watermarks ride `LastChanged` via `FetchOnlyChangedSince` on
+exactly the eight list methods that document it; backfill sends the
+epoch-equivalent stamp. Orders and invoices are customer-scoped (`CustomerID`
+required; `<all>` is valid only with `SearchBy` and is never a bulk path) over
+the required `customers` setting; invoices slide `InvoiceDateRangeStart/End`
+windows (no changed-since filter exists) and inventory is a quantity-inclusive
+item walk stamped as a dated snapshot per logged-in branch. Headers and detail
+rowsets join in-payload (dtOrder/dtOrderDetail on OrderID,
+dtInvoiceDetailResponse on InvoiceNumber) — a detail row whose header is
+absent from the same payload quarantines fail-closed rather than dropping the
+document context. GL transactions and PO lists have **no** AgilityPublic
+service (spec §3 rows 9/11, absences verified against the full method
+inventory): both stay documented plans — GL rides the hybrid vendor-mediated
+channel (Agility's embedded Data Warehouse, report exports, or BInformed FTP)
+and POs extract one `PurchaseOrderGet` per ID from a source outside the API.
+Item pricing never uses `IncludePriceData` (computed against the API user's
+default customer — meaningless for an integration user); the API is called
+sequentially against the dealer's production OpenEdge database. Malformed
+pages quarantine with a machine-readable reason and fail the run. UNEXERCISED
+against a live dealer — validate rowset keys, field names, chunk ceilings, and
+allocation scoping against the tenant's `AgilityVersion` at onboarding;
+fixture tests (`tests/test_dmsi_agility.py`) prove session handling, paging,
+watermarks, joins, quarantine, and reconciliation against MockTransport.
+
 ## SAP HANA (SAP Business One on HANA)
 
 `connectors/legacy/sap_hana/` joins the shared `DbApiBatchConnector` batch
