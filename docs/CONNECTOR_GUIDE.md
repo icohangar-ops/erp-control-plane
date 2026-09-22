@@ -8,18 +8,25 @@ SDK handle provenance, watermarks, Parquet writing, and idempotency.
 
 ```python
 class BaseConnector(ABC):
-    def register(self) -> SourceRegistrationRecord   # upsert source in the control plane
-    def entities(self) -> list[str]                 # extractable entity names
-    def arrow_schema(self, entity) -> pa.Schema     # explicit Arrow schema (stability!)
-    def extract(self, entity, mode) -> ExtractedEntityResult
-    def plan(self, entity) -> list[ExtractionStep]  # dry-run description
+    # The four methods a connector implements:
+    def entities(self) -> list[str]                                     # extractable entity names
+    def validate_config(self) -> list[str]                              # config problems (empty = deployable)
+    def describe_extraction(self, entity) -> ExtractionPlan             # offline dry-run plan
+    def _iter_records(self, entity, mode, watermark) -> Iterator[dict]  # yields canonical staging rows
+
+    # Inherited from the base — never re-implemented per connector:
+    def register(self) -> SourceRegistration             # runs validate_config, upserts the source
+    def extract(self, entity, mode) -> ExtractedEntity   # watermark → _iter_records → Parquet → checkpoint
+    def reconcile_deletes(self, entity) -> ReconciliationResult  # anti-join tombstoning
 ```
 
 Rules the contract enforces:
-1. **`extract` is a generator** of dict rows; the SDK batches to Parquet.
-2. **Every row carries provenance** — the SDK stamps `source_system`,
-   `source_id`, `batch_id`, `loaded_at`; you supply `source_file` and any
-   source-native keys.
+1. **`_iter_records` is a generator** of dict rows; the base's `extract()`
+   batches them to Parquet (25k rows per write).
+2. **Every row carries provenance** — the base stamps `source_system`,
+   `source_id`, `loaded_at`; you supply `source_file`, `source_row_no`, and
+   `batch_id` when the source provides them (API sources fold document
+   identity into `source_id`), and declare each entity's `natural_key_fields`.
 3. **Incremental mode** reads the watermark from the control-plane store and
    only yields newer rows; **backfill** re-reads everything. Idempotency is by
    content hash (files) or high-water column (APIs).
@@ -58,11 +65,13 @@ provenance come free.
 
 - Credential names go in `connectors/sources.yml` with `${VAR}` references;
   values live only in the environment (`.env`), never in the repo.
-- Validate required credentials in `register()` and fail loudly.
-- Declare the incremental column (e.g. `last_modified_date`) in the plan.
+- Declare required credentials in `validate_config()` — the base's
+  `register()` runs it and fails loudly (`ConnectorNotConfigured`).
+- Declare the incremental column (e.g. `last_modified_date`) in
+  `describe_extraction()`.
 - Write an explicit `arrow_schema()` — never let Arrow infer from batch 1.
-- Mark the connector's maturity in `connectors/sources.yml`
-  (`implemented` / `credential_gated` / `skeleton`) and say so in the README.
+- Set the connector's `maturity` ClassVar (`IMPLEMENTED` / `SKELETON`; the
+  contract suite enforces honest labeling) and say so in the README.
 
 ## Legacy SQL connectors (spec §5 rows 1–9)
 
