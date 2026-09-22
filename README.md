@@ -77,7 +77,7 @@ make test && make lint
 | BisTrack | read-only SQL/ODBC · Smart View API | ⚙️ coded, fixture-tested (ODBC mode; Smart View mode remains documented skeleton); **never exercised against a live dealer** |
 | DMSi Agility | AgilityPublic REST (Session/Login) | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
 | Epicor Prophet 21 | SQL / OData | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
-| Epicor Eclipse | REST (Caché) | 📝 documented skeleton |
+| Epicor Eclipse | REST session-token API (Caché) | ⚙️ coded, fixture-tested, tenant-contract-gated; **never exercised against a live tenant** |
 | ECI Spruce / RockSolid MAX | CSV/pipe file drop (manifest-gated) · SOAP Ecommerce API NDA-gated | ⚙️ coded, fixture-tested, dealer-onboarding-gated; **never exercised against a live dealer** |
 | Dynamics 365 BC | API v2 + BACPAC backfill | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live tenant** |
 

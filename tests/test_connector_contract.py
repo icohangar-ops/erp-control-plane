@@ -76,6 +76,15 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         # fixture-tested offline — it has never run against a live dealer;
         # the SOAP Ecommerce API stays NDA-gated future work (spec §2/§8).
         "eci_spruce_template",
+        # Epicor Eclipse REST path is coded (session-token auth over
+        # POST /Sessions + /SessionRefresh, per-tenant-pinned query-param
+        # paging, updatedAfter watermarks, GLInquiryDetail GL, dated inventory
+        # sweeps) and fixture-tested offline via MockTransport — like the pack
+        # above, it has never run against a live tenant; the session/paging
+        # wire contract is per-tenant [D] pins that fail closed on empty, and
+        # invoice lines stay a documented hybrid-channel plan (the spec
+        # verifies no /Invoices endpoint exists).
+        "epicor_eclipse_template",
         # Demo Informix tenant: enabled only by the GenBI demo runner, still
         # fixture-driven (the pyodbc transport is stood in by the demo).
         "informix_demo",
@@ -93,12 +102,10 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     }
     for source_id in implemented_templates:
         assert by_id[source_id].maturity is ConnectorMaturity.IMPLEMENTED
-    # The remaining template is a documented skeleton that never fabricates
-    # data (Eclipse: pending API user provisioning on the tenant).
+    # Every first-wave template is now coded and fixture-tested; no
+    # documented skeletons remain in the registry.
     skeletons = [c for c in templates if c.source.source_id not in implemented_templates]
-    assert {c.source.source_id for c in skeletons} == {
-        "epicor_eclipse_template",
-    }
+    assert {c.source.source_id for c in skeletons} == set()
     assert all(c.maturity is ConnectorMaturity.SKELETON for c in skeletons)
 
 

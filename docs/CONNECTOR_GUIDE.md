@@ -247,6 +247,55 @@ allocation scoping against the tenant's `AgilityVersion` at onboarding;
 fixture tests (`tests/test_dmsi_agility.py`) prove session handling, paging,
 watermarks, joins, quarantine, and reconciliation against MockTransport.
 
+## Epicor Eclipse (REST session-token API over Caché)
+
+`connectors/epicor_eclipse/` implements the documented Eclipse REST surface
+(spec art_Hp74a48b): the API engine is the only extraction channel — Eclipse
+runs on InterSystems Caché and no SQL/ODBC path is offered to external
+services on-prem or in Eclipse Cloud. Auth is the proprietary expiring-session
+model, not OAuth2 and not basic auth: `POST /Sessions` mints a
+`sessionToken` (+ `refreshToken`) and every data call carries the token in the
+tenant-pinned token header; `POST /SessionRefresh` recovers an
+expired-but-not-deleted session (the refresh request identifies itself with
+the same token header) and a full `POST /Sessions` re-login is the fallback
+when the session is already deleted. No token TTL is public, so none is
+assumed: one session rejection refreshes (or re-logins) and retries that page
+exactly once, a second rejection fails the run, and the walked entity dedupes
+by natural id so the retry never double-stages rows. The session request-body
+field names, token header, watermark stamp field, and paging parameter
+names/first-index/values are **per-tenant contract ([D])** — they exist only
+in each tenant's deployed API docs (`http://EclipseServer:Port`, default port
+5000) and are REQUIRED settings that fail closed on empty; a wrong
+page-number first index silently skips a page, so it is validated
+(0-based or 1-based) rather than defaulted. List reads walk query-param pages
+until a short page with a runaway-page guard; masters ride `updatedAfter`
+watermarks (the epoch-equivalent on backfill; rows staged with zero stamps
+fail closed — no checkpoint is persisted for a payload that proves the pin
+wrong); inventory is a full `/ProductInventoryList` sweep stamped as a dated
+snapshot (no watermark is possible for quantities); sales-order and
+purchase-order lines flatten the detail object's `LineItems` collection (a
+detail without lines quarantines fail-closed rather than dropping document
+context); customers drop only rows whose `deleted` flag is explicitly set
+(P21 polarity discipline — a missing flag is not a dead account); GL entries
+extract from `GLInquiryDetail` by posting-period window; and vendors extract
+from `/Vendors` with the same paging contract. License-gated families
+(`/SalesOrders` Sales Order API, `/PurchaseOrders` Purchase Order API,
+`/GL*`/`/Journals` Accounting API, `ARInquiry` Accounting/AR API — check
+Premium bundle entitlements in diligence) and the **Search Index Builder**
+dependency (search-based GETs fail with "first index the records" until the
+tenant indexes each entity — a deployment prerequisite the connector surfaces
+as its own failure, not an empty result) are documented in the extraction
+plans. No `/Invoices` endpoint exists (spec §3, verified absence): invoice
+lines stay a documented plan — `ARInquiry` is inquiry-shaped and
+license-gated, so history rides the hybrid report/file channel negotiated
+with the dealer or Epicor CAM. Malformed pages and keyless rows quarantine
+with a machine-readable reason and fail the run. UNEXERCISED against a live
+tenant — capture the tenant's deployed API docs, pin every [D] setting,
+verify Search Index state, and run the stepped-load test at onboarding;
+fixture tests (`tests/test_epicor_eclipse.py`) prove session-token auth and
+refresh recovery, paging, watermarks, line flattening, quarantine, backoff,
+and anti-join reconciliation against MockTransport.
+
 ## SAP HANA (SAP Business One on HANA)
 
 `connectors/legacy/sap_hana/` joins the shared `DbApiBatchConnector` batch
