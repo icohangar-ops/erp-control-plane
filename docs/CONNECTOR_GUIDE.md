@@ -114,6 +114,43 @@ Sybase-style soft deletes: set `soft_delete_column` and `soft_delete_value`
 those rows so the anti-join never tombstones live keys. Hard deletes are
 reconciled by the anti-join below in every case.
 
+## BisTrack (ODBC implemented, Smart View documented plan)
+
+`connectors/bistrack/connector.py` rides the same `DbApiBatchConnector` engine
+as the legacy pack, with a mode switch (spec §3.1's read surfaces):
+
+- `mode: odbc` (default) — read-only pyodbc against the on-prem SQL Server.
+  Two entities are mapped: `sales_order_lines` (`OrderLine` JOIN `OrderHeader`)
+  and `invoice_lines` (`InvoiceHeader` JOIN the expected `InvoiceLine` table —
+  confirm the name at onboarding). These are the only public table names, so
+  every other entity stays a documented plan whose extraction raises
+  `ConnectorNotImplemented` until the §3.3 discovery pack pins the physical
+  tables — the column maps in the spec's `DocumentEntitySpec` are the artifact
+  to edit when it does. The connection factory is injectable; fixture tests
+  drive the real machinery (`tests/test_bistrack.py`), and the lazy pyodbc
+  default factory keeps the driver an optional install.
+- `mode: smartview` — the BisTrack Web Smart View API. DOCUMENTED PLAN ONLY:
+  the BisTrack API is a separately licensed Epicor product with no public token
+  scheme or endpoint catalog (spec §2.1), so the adapter reports planned
+  surfaces and raises `ConnectorNotImplemented`.
+
+BisTrack-specific machinery the shared engine does not model:
+
+- **Per-document-type watermarks.** `OrderHeader` numbers orders, quotes,
+  call-off orders, reservations, and template orders in separate sequences
+  (spec §7.1) — a quote is a sibling transaction, not a flagged order. Extraction
+  scans one configured document type at a time (`order_document_types` is
+  REQUIRED for orders; invoices may scan unscoped) and the checkpoint is a JSON
+  map `{doc_type: max_doc_no}`, compared number-aware. The document type also
+  scopes the natural key (`ORDER:1234:5`), and the key-inventory scan carries
+  the same type filter so the anti-join diff is scope-faithful.
+- **Keyset paging.** Pages advance with `(doc > ? OR (doc = ? AND line > ?))`
+  plus `ORDER BY doc, line OFFSET 0 ROWS FETCH NEXT n ROWS ONLY` — the
+  predicate carries the cursor, never a sliding OFFSET window (spec §6.4).
+- **UOM and branch carriage.** The source UOM rides every quantity/price raw
+  (spec §7.3 — never normalize at extraction); `branch_code` rides every row
+  and inventory keys stay branch-scoped (spec §7.4).
+
 ## Delete reconciliation is part of the contract (spec §6)
 
 Every batch connector implements `source_key_inventory(entity)` — a cheap
