@@ -129,10 +129,21 @@ in `tests/test_legacy_sql_connectors.py` and `tests/test_api_connectors.py`.
 
 Both are implemented against their documented surfaces and UNEXERCISED
 against live tenants — validate field maps against `$metadata` at onboarding.
-Business Central (`connectors/d365_bc/`) pages API v2.0 with `$top` +
-`@odata.nextLink` continuation, sends `Data-Access-Intent: ReadOnly`, honors
-`Retry-After` on 429/503 with bounded exponential backoff, and flattens
-expanded header/line payloads. Prophet 21 (`connectors/epicor_p21/`) pages
+Business Central (`connectors/d365_bc/`) loops the configured companies list
+(the `companies` setting — comma-separated ids; the only non-company-scoped
+call is `GET /companies`), pages API v2.0 with `$top` + `@odata.nextLink`
+continuation, sends `Data-Access-Intent: ReadOnly`, honors `Retry-After` on
+429/503 with bounded exponential backoff, halves its page on 504, and flattens
+expanded header/line payloads. The checkpoint is the max `lastModifiedDateTime`
+observed across ALL configured companies (never a per-company max); natural
+ids are company-prefixed so two companies' shared document numbers never
+collide. `salesInvoices` is the invoice document aggregate, not a
+posted-invoice archive (caveat on the `invoice_lines` plan); price lists,
+item attributes, and ship-to/order-address masters have no v2.0 entity
+(custom AL API pages per tenant); historical backfill is a restore-side
+BACPAC export, never an in-connector path; and malformed API pages quarantine
+with a machine-readable reason and fail the run. Prophet 21
+(`connectors/epicor_p21/`) pages
 OData v4 with explicit `$top`/`$skip` (P21 emits no continuation links, so
 `$top` is always set), reads header-driven lines with an explicit FK
 `$filter`, and watermarks on `date_last_modified`. Both feed the same
