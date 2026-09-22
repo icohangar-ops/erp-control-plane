@@ -1,8 +1,11 @@
 """epicor_p21 — Epicor Prophet 21 extraction (OData v4 Data Services, cloud).
 
 STATUS: implemented against the documented P21 OData v4 Data Services surface
-(bearer-token auth, explicit ``$top`` paging — P21 does not emit OData
-continuation links, so this connector pages with ``$top`` + ``$skip`` and
+(middleware token auth — ``POST /api/security/token/v2`` with JSON credentials,
+defensively parsed because some middleware answers XML even when JSON is
+requested, cached until near expiry because tokens live ~24 h and the token
+endpoint throttles re-minting — explicit ``$top`` paging — P21 does not emit
+OData continuation links, so this connector pages with ``$top`` + ``$skip`` and
 ALWAYS sets ``$top`` per the documented behavior — watermark on
 ``date_last_modified``) but NOT exercised against a live tenant: no fabricated
 API behavior ships as tested. Validate entity-set names and field maps against
@@ -27,7 +30,9 @@ Extraction notes (ERP landscape research, art_NKUrngnG; posture art_7DIRx9Nu):
 from __future__ import annotations
 
 import datetime as dt
+import json
 import time
+import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from typing import ClassVar
 
@@ -37,10 +42,22 @@ from connectors.base import (
     BaseConnector,
     ConnectorError,
     ConnectorMaturity,
+    ConnectorNotConfigured,
     ExtractionMode,
     ExtractionPlan,
     natural_id_for,
 )
+from control_plane.config import ControlPlaneConfig
+from control_plane.models import SourceConfig
+from control_plane.store import ControlPlaneStore
+
+#: The middleware token endpoint (spec §2.2): v2 takes credentials in the JSON
+#: body — never headers.
+TOKEN_PATH = "/api/security/token/v2"
+
+#: iPaaS-documented token lifetime (~24 h) when the response carries no
+#: expiry hint.
+DEFAULT_TOKEN_TTL_SECONDS = 24 * 60 * 60
 
 #: entity -> (header table, canonical header map, lines table, fk, line map).
 #: Field names follow the documented P21 surface; reviewed against $metadata
@@ -117,6 +134,46 @@ _HEADER_CONTEXT: dict[str, dict[str, str]] = {
 }
 
 
+def _parse_token_payload(text: str) -> tuple[str, float]:
+    """Parse ``(AccessToken, lifetime_seconds)`` from a token-endpoint response.
+
+    Some middleware answers XML even when JSON is requested (spec §2.2), so
+    JSON is tried first and an XML body scanned for an ``AccessToken`` element.
+    Both failing is a hard error — never a silent empty token.
+    """
+    try:
+        payload: object = json.loads(text)
+    except ValueError:
+        payload = None
+    if isinstance(payload, dict):
+        token = payload.get("AccessToken") or payload.get("access_token")
+        if isinstance(token, str) and token:
+            lifetime = DEFAULT_TOKEN_TTL_SECONDS
+            expiry = payload.get("ExpiresIn") or payload.get("expires_in")
+            if isinstance(expiry, (int, float)) and expiry > 0:
+                lifetime = float(expiry)
+            return token, lifetime
+        raise ConnectorError(
+            "Prophet 21 token response was JSON but carried no AccessToken — "
+            "refusing to authenticate with an empty token"
+        )
+    try:
+        root = ET.fromstring(text)
+    except ET.ParseError as exc:
+        raise ConnectorError(
+            "Prophet 21 token response is neither JSON nor XML — cannot "
+            "extract an AccessToken from it"
+        ) from exc
+    for element in root.iter():
+        if (
+            element.tag.rsplit("}", 1)[-1] == "AccessToken"
+            and element.text
+            and element.text.strip()
+        ):
+            return element.text.strip(), DEFAULT_TOKEN_TTL_SECONDS
+    raise ConnectorError("Prophet 21 token response carried no AccessToken element")
+
+
 class EpicorP21Connector(BaseConnector):
     """Prophet 21 OData v4 adapter. Credential-gated; dry-runs need no network."""
 
@@ -124,11 +181,13 @@ class EpicorP21Connector(BaseConnector):
     maturity = ConnectorMaturity.IMPLEMENTED  # coded — but see UNEXERCISED note above
     extraction_notes = (
         "OData v4 Data Services with explicit $top + $skip paging (no "
-        "continuation links — $top is always set), bearer-token auth, and "
-        "watermark on date_last_modified (spec §5). Not yet exercised against a "
-        "live tenant; validate entity sets and field maps against $metadata at "
-        "onboarding. On-prem P21 should use the SQL Server connector against a "
-        "read-only replica instead."
+        "continuation links — $top is always set), middleware token auth "
+        "(POST /api/security/token/v2 with JSON credentials; tokens live ~24 h, "
+        "are cached until near expiry, and one 401 triggers a single "
+        "re-mint-and-retry), and watermark on date_last_modified (spec §5). Not "
+        "yet exercised against a live tenant; validate entity sets and field "
+        "maps against $metadata at onboarding. On-prem P21 should use the SQL "
+        "Server connector against a read-only replica instead."
     )
     natural_key_fields: ClassVar[dict[str, tuple[str, ...]]] = {
         "items": ("item_no",),
@@ -139,15 +198,23 @@ class EpicorP21Connector(BaseConnector):
         "purchase_order_lines": ("po_no", "line_no"),
         "inventory_snapshots": ("snapshot_date", "location_id", "item_no"),
     }
-    required_settings: ClassVar[tuple[str, ...]] = ("odata_base_url",)
+    required_settings: ClassVar[tuple[str, ...]] = (
+        "odata_base_url",
+        "odata_user",
+        "odata_password",
+    )
     PAGE_SIZE = 500
     MAX_RETRIES = 5
     BACKOFF_SECONDS = 2.0
 
-    def __init__(self, source, store, config):
+    def __init__(
+        self, source: SourceConfig, store: ControlPlaneStore, config: ControlPlaneConfig
+    ) -> None:
         super().__init__(source, store, config)
         self._http_client: httpx.Client | None = None
         self._max_incremental_seen: dict[str, str] = {}
+        self._cached_token: str | None = None
+        self._token_expiry = 0.0
 
     # ------------------------------------------------------------------
     # Contract surface
@@ -185,6 +252,7 @@ class EpicorP21Connector(BaseConnector):
     def _iter_records(
         self, entity: str, mode: ExtractionMode, watermark: str | None
     ) -> Iterator[dict[str, object]]:
+        self._require_config()
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
         if not spec.get("lines_table"):
@@ -219,6 +287,7 @@ class EpicorP21Connector(BaseConnector):
 
     def source_key_inventory(self, entity: str) -> set[str]:
         """Key scan of the entity set — the anti-join's source side."""
+        self._require_config()
         key_fields = self.natural_key_fields[entity]
         spec = self._entity_spec(entity)
         field_map = _FIELD_MAPS[entity]
@@ -245,7 +314,7 @@ class EpicorP21Connector(BaseConnector):
         return self._max_incremental_seen.get(entity, watermark_before)
 
     # ------------------------------------------------------------------
-    # OData plumbing (explicit $top/$skip paging, 429 backoff, auth)
+    # OData plumbing (explicit $top/$skip paging, 429 backoff, token auth)
     # ------------------------------------------------------------------
 
     def _paged(self, entity: str, table: str, mode: ExtractionMode | None, watermark: str | None):
@@ -298,20 +367,33 @@ class EpicorP21Connector(BaseConnector):
                 self._max_incremental_seen[entity] = text
 
     def _get_json(self, url: str, params: dict[str, str]) -> dict[str, object]:
-        """GET with auth headers and documented-limits backoff (429/503)."""
+        """GET with bearer auth and documented-limits backoff (429/503).
+
+        A 401 mid-run means the ~24 h token lapsed despite the cache: mint
+        once and retry the same request before failing.
+        """
         delay = self.BACKOFF_SECONDS
-        for attempt in range(1, self.MAX_RETRIES + 1):
+        reauthorized = False
+        attempt = 0
+        while True:
             response = self._client().get(url, params=params, headers=self._headers())
             if response.status_code in (429, 503):
-                retry_after = response.headers.get("Retry-After")
-                delay = float(retry_after) if retry_after and retry_after.isdigit() else delay
-                if attempt == self.MAX_RETRIES:
+                attempt += 1
+                if attempt >= self.MAX_RETRIES:
                     raise ConnectorError(
                         f"Prophet 21 returned {response.status_code} on {url} after "
                         f"{self.MAX_RETRIES} backoff attempts"
                     )
+                retry_after = response.headers.get("Retry-After")
+                delay = float(retry_after) if retry_after and retry_after.isdigit() else delay
                 time.sleep(delay)
                 delay *= 2
+                continue
+            if response.status_code == 401 and not reauthorized:
+                # The re-mint does not count against the backoff budget.
+                reauthorized = True
+                self._cached_token = None
+                self._token_expiry = 0.0
                 continue
             try:
                 response.raise_for_status()
@@ -319,17 +401,48 @@ class EpicorP21Connector(BaseConnector):
                 raise ConnectorError(f"Prophet 21 call failed: {exc}") from exc
             data: dict[str, object] = response.json()
             return data
-        raise ConnectorError("unreachable: retry loop must return or raise")  # pragma: no cover
 
     def _headers(self) -> dict[str, str]:
-        headers = {"Accept": "application/json"}
-        bearer = self.source.settings.get("bearer_token")
-        if bearer:
-            headers["Authorization"] = f"Bearer {bearer}"
-        api_key = self.source.settings.get("api_key")
-        if api_key:
-            headers["X-Api-Key"] = api_key
-        return headers
+        return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}
+
+    def _token(self) -> str:
+        """Middleware token, cached until near expiry (spec §2.2).
+
+        Tokens live ~24 h and the token endpoint throttles re-minting, so the
+        token is minted once and reused across data calls; a mid-run 401
+        clears the cache (``_get_json`` retries the request).
+        """
+        if self._cached_token and self._token_expiry > time.time() + 60:
+            return self._cached_token
+        settings = self.source.settings
+        response = self._client().post(
+            self._token_url(),
+            content=json.dumps(
+                {"username": settings["odata_user"], "password": settings["odata_password"]}
+            ),
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        try:
+            response.raise_for_status()
+        except httpx.HTTPError as exc:
+            raise ConnectorError(f"Prophet 21 token request failed: {exc}") from exc
+        token, lifetime = _parse_token_payload(response.text)
+        self._cached_token = token
+        self._token_expiry = time.time() + lifetime
+        return token
+
+    def _require_config(self) -> None:
+        """Fail closed BEFORE any network attempt — inert without credentials."""
+        problems = self.validate_config()
+        if problems:
+            raise ConnectorNotConfigured(
+                f"source {self.source.source_id} ({self.erp_id}) is not configurable: "
+                + "; ".join(problems)
+            )
+
+    def _token_url(self) -> str:
+        base = self.source.settings["odata_base_url"].rstrip("/")
+        return f"{base}{TOKEN_PATH}"
 
     def _table_url(self, table: str) -> str:
         base = self.source.settings["odata_base_url"].rstrip("/")

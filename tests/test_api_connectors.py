@@ -81,11 +81,28 @@ def _bc_connector(tmp_path: Path) -> DynamicsBcConnector:
     return _bc_connector_with_companies(tmp_path, "33333333-3333")
 
 
-def _p21_connector(tmp_path: Path) -> EpicorP21Connector:
+P21_SETTINGS = {
+    "odata_base_url": "https://p21.fixture",
+    "odata_user": "fixture-user",
+    "odata_password": "fixture-password",
+}
+
+
+def _p21_connector(tmp_path: Path, settings: dict[str, str] | None = None) -> EpicorP21Connector:
     connector = _connector(
-        tmp_path, EpicorP21Connector, settings={"odata_base_url": "https://p21.fixture"}
+        tmp_path, EpicorP21Connector, settings={**P21_SETTINGS, **(settings or {})}
     )
     assert isinstance(connector, EpicorP21Connector)
+    return connector
+
+
+def _p21_with_seeded_token(tmp_path: Path) -> EpicorP21Connector:
+    """Token pre-minted (the BC idiom): fixtures exercising paging, filtering,
+    and reconciliation never need the token route."""
+    connector = _p21_connector(tmp_path)
+    assert isinstance(connector, EpicorP21Connector)
+    connector._cached_token = "fixture-access-token"
+    connector._token_expiry = time.time() + 3600
     return connector
 
 
@@ -550,12 +567,139 @@ def test_bc_dry_run_without_network(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Prophet 21: explicit $top/$skip paging, header-driven lines, reconciliation
+# Prophet 21: token-endpoint auth, explicit $top/$skip paging, header-driven
+# lines, soft-delete filtering, reconciliation
 # ---------------------------------------------------------------------------
 
 
-def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_p21_token_endpoint_auth_mints_and_reuses(tmp_path: Path) -> None:
+    """Spec §2.2: JSON credentials mint a bearer token at
+    /api/security/token/v2 (credentials in the body, never headers); the token
+    is minted once and reused across data calls — the token endpoint
+    throttles re-minting."""
     connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [_json_response({"AccessToken": "fixture-access-token"})],
+                "/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    token_calls = [c for c in calls if c.url.path.endswith("/token/v2")]
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert len(token_calls) == 1  # minted once, not per data call
+    assert json.loads(token_calls[0].content) == {
+        "username": "fixture-user",
+        "password": "fixture-password",
+    }
+    assert token_calls[0].headers["Content-Type"] == "application/json"
+    assert [c.headers["Authorization"] for c in data_calls] == ["Bearer fixture-access-token"]
+
+
+def test_p21_token_response_may_be_xml(tmp_path: Path) -> None:
+    """Spec §2.2: some middleware answers XML even when JSON is requested —
+    the AccessToken is parsed defensively instead of failing the run."""
+    connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    xml_body = (
+        '<?xml version="1.0" encoding="utf-8"?>'
+        "<TokenResponse><AccessToken>xml-token</AccessToken></TokenResponse>"
+    )
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [httpx.Response(200, content=xml_body)],
+                "/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert data_calls[0].headers["Authorization"] == "Bearer xml-token"
+
+
+def test_p21_reauths_once_on_mid_run_401(tmp_path: Path) -> None:
+    """A ~24 h token can lapse mid-run: one 401 clears the cache, mints once,
+    and retries the same request."""
+    connector = _p21_connector(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [
+                    _json_response({"AccessToken": "token-1"}),
+                    _json_response({"AccessToken": "token-2"}),
+                ],
+                "/inv_mast": [
+                    httpx.Response(401),
+                    _json_response({"value": [{"item_id": "ITEM-0001"}]}),
+                ],
+            },
+            calls,
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    result = connector.extract("items")
+
+    assert result.rows_extracted == 1
+    data_calls = [c for c in calls if not c.url.path.endswith("/token/v2")]
+    assert [c.headers["Authorization"] for c in data_calls] == [
+        "Bearer token-1",
+        "Bearer token-2",
+    ]
+
+
+def test_p21_second_401_fails_honestly(tmp_path: Path) -> None:
+    """One re-mint per request, no more: a persistent 401 is a hard error."""
+    connector = _p21_connector(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {
+                "/token/v2": [
+                    _json_response({"AccessToken": "token-1"}),
+                    _json_response({"AccessToken": "token-2"}),
+                ],
+                "/inv_mast": [httpx.Response(401), httpx.Response(401)],
+            },
+            [],
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="Prophet 21 call failed"):
+        connector.extract("items")
+
+
+def test_p21_backoff_gives_up_after_max_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [httpx.Response(429) for _ in range(5)]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+    monkeypatch.setattr(time, "sleep", lambda _s: None)
+
+    with pytest.raises(ConnectorError, match="after 5 backoff attempts"):
+        connector.extract("items")
+
+
+def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     items_page_1 = {
         "value": [
@@ -608,7 +752,7 @@ def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.Monkey
 
 
 def test_p21_header_driven_lines(tmp_path: Path) -> None:
-    connector = _p21_connector(tmp_path)
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     transport = httpx.MockTransport(
         _routing_handler(
@@ -667,7 +811,7 @@ def test_p21_header_driven_lines(tmp_path: Path) -> None:
 
 
 def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
-    connector = _p21_connector(tmp_path)
+    connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
     items = {
         "value": [
