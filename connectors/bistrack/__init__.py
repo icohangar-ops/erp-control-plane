@@ -1,4 +1,4 @@
-"""bistrack — BisTrack (Epicor) connector (documented skeleton, dual mode)."""
+"""bistrack — BisTrack (Epicor) connector (ODBC implemented, Smart View documented plan)."""
 
 from connectors.bistrack.connector import BisTrackConnector
 

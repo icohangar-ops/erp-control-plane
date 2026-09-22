@@ -81,6 +81,8 @@ sources:
       odbc_dsn: ${BISTRACK_ODBC_DSN:-}
       db_user: ${BISTRACK_DB_USER:-}
       db_password: ${BISTRACK_DB_PASSWORD:-}
+      order_document_types: ${BISTRACK_ORDER_DOC_TYPES:-}
+      invoice_document_types: ${BISTRACK_INVOICE_DOC_TYPES:-}
       smartview_base_url: ${BISTRACK_SMARTVIEW_URL:-}
       smartview_api_key: ${BISTRACK_SMARTVIEW_KEY:-}
 

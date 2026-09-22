@@ -58,6 +58,11 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         "d365_bc_template",
         "cloud_erp_rest_template",
         "epicor_p21_template",
+        # BisTrack ODBC path is coded (keyset-paged document scans, per-type
+        # numbering watermarks) and fixture-tested offline via injected
+        # connection factories — like the pack above, it has never run against
+        # a live BisTrack site; Smart View stays a documented skeleton mode.
+        "bistrack_template",
         # Demo Informix tenant: enabled only by the GenBI demo runner, still
         # fixture-driven (the pyodbc transport is stood in by the demo).
         "informix_demo",
@@ -78,7 +83,6 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     # The remaining templates are documented skeletons that never fabricate data.
     skeletons = [c for c in templates if c.source.source_id not in implemented_templates]
     assert {c.source.source_id for c in skeletons} == {
-        "bistrack_template",
         "dmsi_agility_template",
         "epicor_eclipse_template",
         "eci_spruce_template",
