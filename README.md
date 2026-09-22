@@ -72,13 +72,14 @@ make test && make lint
 | ERP | Surface | Status |
 |---|---|---|
 | Generic CSV/SFTP | files + manifest | ✅ working end to end (demo + tests) |
-| NetSuite | SuiteQL / TBA | ⚙️ coded, credential-gated, `--dry-run`; **never exercised against a live tenant** |
-| BisTrack | read-only SQL/ODBC · Smart View API | 📝 documented skeleton (dual mode) |
+| IBM Informix (primary database connector) | ODBC batch (Informix Client SDK via pyodbc) · CDC documented (Debezium) | ⚙️ coded, fixture-tested, demo tenant included (`informix_demo`); **never exercised against a live tenant** |
+| NetSuite | SuiteQL / TBA | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live tenant** |
+| BisTrack | read-only SQL/ODBC · Smart View API | ⚙️ coded, fixture-tested (ODBC mode; Smart View mode remains documented skeleton); **never exercised against a live dealer** |
 | DMSi Agility | AgilityPublic REST (Session/Login) | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
-| Epicor Prophet 21 | SQL / OData | 📝 documented skeleton |
+| Epicor Prophet 21 | SQL / OData | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live dealer** |
 | Epicor Eclipse | REST (Caché) | 📝 documented skeleton |
 | ECI Spruce / RockSolid MAX | CSV/pipe file drop (manifest-gated) · SOAP Ecommerce API NDA-gated | ⚙️ coded, fixture-tested, dealer-onboarding-gated; **never exercised against a live dealer** |
-| Dynamics 365 BC | API v2 + BACPAC backfill | 📝 documented skeleton |
+| Dynamics 365 BC | API v2 + BACPAC backfill | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live tenant** |
 
 Skeletons document the real extraction surface and stop at
 `ConnectorNotImplemented` — no invented API behavior. Add yours per
