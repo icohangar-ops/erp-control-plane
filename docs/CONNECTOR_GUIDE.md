@@ -340,3 +340,44 @@ endpoint's driver, required settings, and `${VAR}` interpolation;
 `load_warehouse_configs()` parses them into typed configs with a `validate()`
 that lists unresolvable settings. The FastAPI connectivity layer attaches to
 these; the extraction pipeline never does.
+
+## Connector-wave flags
+
+Decisions collected during the first connector wave and recorded here so the
+matrix (`evidence/matrix.yaml`) can bind them to a checkable location. Each
+flag states its decision and the condition that reverses it.
+
+### Conversion factors carried at the connector layer
+
+Canonical conversion-factor column: deferred. Unit-of-measure conversions are
+carried at the connector layer only (flagged in the BisTrack, DMSi Agility, and
+ECI Spruce adapters); the canonical fact models keep each source's native UOM
+columns and apply no canonical conversion factor. Reversal condition: a
+cross-site analytics requirement that compares quantities across ERPs in one
+canonical unit — at that point a canonical conversion-factor column lands in
+the canonical model with per-source factors validated at onboarding.
+
+### BisTrack invoice scans assume site-global numbering
+
+Unscoped invoice scans in the BisTrack adapter assume site-global invoice numbering
+(one sequence per site). The safe path is per-type invoice_document_types
+extraction, which scopes scans per document type. Reversal
+condition: a tenant whose site reuses invoice numbers across document types —
+onboard those per-type only.
+
+### DMSi Agility header/detail nesting confirmed at onboarding
+
+The DMSi Agility adapter treats header and detail results as parallel rowsets
+(keyed by the header key, not nested objects). This shape is confirmed at onboarding:
+validate the parallel-rowset assumption against a live dealer's AgilityPublic
+metadata before enabling extraction. Reversal condition: a tenant whose
+AgilityPublic tenant returns nested detail payloads — the rowset flattening
+moves into that tenant's profile.
+
+### Spruce SOAP surface is NDA-gated
+
+The Spruce/RockSolid MAX SOAP Ecommerce API surface is NDA-gated and therefore
+is not implemented from documentation; the shipped path is the manifest-gated
+CSV/pipe file drop. Reversal condition: NDA access granted — the SOAP adapter
+is then specified from the gated documentation and exercised against a sandbox
+tenant before any dealer cutover.

@@ -116,3 +116,14 @@ jobs:
       - run: pip install -e .
       - name: Enforce guardrail fixture coupling (same-PR fixture updates)
         run: python -m guardrail_fixtures.check --base="origin/${{ github.base_ref || 'main' }}"
+
+  evidence-matrix:
+    # Evidence matrix gate ([Data] deterministic-verification requirement): every
+    # capability claim in evidence/matrix.yaml must resolve to deterministic
+    # evidence on every PR. The vendored verifier is stdlib-only, so this job runs
+    # before and without any install step; fail-closed — exit 0 only when every
+    # claim verifies. No skip flags, no allowlists, no quiet modes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/verify_evidence_matrix.py

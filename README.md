@@ -100,6 +100,28 @@ KPI sign-off → scheduled increments.
 - Superset deployments must configure RLS per tenant/branch
   (`analytics/README.md`).
 
+## Evidence matrix
+
+Every capability claim in this README is mapped to deterministic evidence in
+[evidence/matrix.yaml](evidence/matrix.yaml) — a named test, an offline script, a
+pinned manifest field, or a content hash. CI refuses builds while any row is
+unverifiable: the `evidence-matrix` job runs the vendored, stdlib-only verifier
+([tools/verify_evidence_matrix.py](tools/verify_evidence_matrix.py), byte-identical
+to canonical kit v1.0.0 at `consensus-hardening-protocol@88067e4`, SHA-256
+`238e02ab19d59e8b4dc2f6cc5f7ddf099f17a32079b1bc62aa9fcbafbfd297e8`) before any
+install step — fail-closed, no skip flags.
+
+Reproduce locally:
+
+```bash
+python3 tools/verify_evidence_matrix.py
+```
+
+Reproduce the headline claims: `make demo` (seeded extraction + dbt build + KPI
+values), `pytest -q` (full suite, including the matrix tamper tests), and the
+verifier above (claim table). The matrix also binds the connector-wave decisions
+recorded in [docs/CONNECTOR_GUIDE.md](docs/CONNECTOR_GUIDE.md#connector-wave-flags).
+
 ## KPI dashboard (Apache Superset)
 
 The KPI dashboard, provisioned idempotently by
