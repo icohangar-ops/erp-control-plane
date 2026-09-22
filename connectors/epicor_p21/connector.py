@@ -8,8 +8,10 @@ endpoint throttles re-minting — explicit ``$top`` paging — P21 does not emit
 OData continuation links, so this connector pages with ``$top`` + ``$skip`` and
 ALWAYS sets ``$top`` per the documented behavior — soft-delete flags filtered
 server-side and client-side so a soft-delete-heavy site cannot mass-tombstone
-(spec §6.4) — watermark on
-``date_last_modified``) but NOT exercised against a live tenant: no fabricated
+(spec §6.4) — header pages ``$orderby``'d on each entity's stable key so
+OFFSET windows are deterministic on active tables (spec §6.3), and malformed
+API pages quarantined with machine-readable reasons (fail-closed) — watermark
+on ``date_last_modified``) but NOT exercised against a live tenant: no fabricated
 API behavior ships as tested. Validate entity-set names and field maps against
 the tenant's ``$metadata`` at onboarding; ``plan --source <id>`` (dry-run)
 needs no network.
@@ -34,9 +36,11 @@ from __future__ import annotations
 import datetime as dt
 import json
 import time
+import uuid
 import xml.etree.ElementTree as ET
 from collections.abc import Iterator
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import ClassVar
 
 import httpx
@@ -51,7 +55,7 @@ from connectors.base import (
     natural_id_for,
 )
 from control_plane.config import ControlPlaneConfig
-from control_plane.models import SourceConfig
+from control_plane.models import QuarantineRecord, SourceConfig
 from control_plane.store import ControlPlaneStore
 
 #: The middleware token endpoint (spec §2.2): v2 takes credentials in the JSON
@@ -61,6 +65,10 @@ TOKEN_PATH = "/api/security/token/v2"
 #: iPaaS-documented token lifetime (~24 h) when the response carries no
 #: expiry hint.
 DEFAULT_TOKEN_TTL_SECONDS = 24 * 60 * 60
+
+#: Reason codes recorded on quarantined API pages (csv_sftp/NetSuite parity).
+RC_MALFORMED_PAGE = "MALFORMED_PAGE"
+RC_UNPARSEABLE_JSON = "UNPARSEABLE_JSON"
 
 #: entity -> (header table, canonical header map, lines table, fk, line map).
 #: Field names follow the documented P21 surface; reviewed against $metadata
@@ -172,6 +180,21 @@ def _is_soft_deleted(soft: SoftDelete | None, row: dict[str, object]) -> bool:
     return soft is not None and row.get(soft.column) == soft.deleted_value
 
 
+#: Stable server-side order per entity (spec §6.3 backfill mechanics: $top +
+#: $orderby on a stable key). Where the key is not unique per row, ties may
+#: interleave mid-scan — re-runs stay idempotent by natural key (NetSuite
+#: parity); partition long histories into watermark windows at onboarding.
+_ORDER_BY: dict[str, str] = {
+    "items": "item_id",
+    "customers": "customer_id",
+    "vendors": "supplier_id",
+    "inventory_snapshots": "inv_mast_uid, location_id",
+    "sales_order_lines": "order_no",
+    "invoice_lines": "invoice_no",
+    "purchase_order_lines": "po_no",
+}
+
+
 def _parse_token_payload(text: str) -> tuple[str, float]:
     """Parse ``(AccessToken, lifetime_seconds)`` from a token-endpoint response.
 
@@ -227,7 +250,10 @@ class EpicorP21Connector(BaseConnector):
         "client-side in both extraction and the key-inventory scan so a "
         "soft-delete-heavy site cannot mass-tombstone (polarity follows the "
         "spec's operative §6.4/§7 semantics — 'Y' = deleted — per-site "
-        "verified at onboarding), and watermark on date_last_modified. Not yet "
+        "verified at onboarding), and watermark on date_last_modified. Header "
+        "pages are ORDERed by each entity's stable key so OFFSET windows are "
+        "deterministic on active tables, and malformed pages quarantine with a "
+        "machine-readable reason and fail the run. Not yet "
         "exercised against a live tenant; validate entity sets, field maps, "
         "and flag polarity against $metadata at onboarding. On-prem P21 should "
         "use the SQL Server connector against a read-only replica instead."
@@ -369,8 +395,30 @@ class EpicorP21Connector(BaseConnector):
     # ------------------------------------------------------------------
 
     def _paged(self, entity: str, table: str, mode: ExtractionMode | None, watermark: str | None):
-        """Yield rows across explicit $top/$skip pages (P21 has no nextLink)."""
-        params: dict[str, str] = {"$top": str(self.PAGE_SIZE)}
+        """Yield rows across explicit $top/$skip pages (P21 has no nextLink).
+
+        Pages are $orderby'd on the entity's stable key (spec §6.3) so OFFSET
+        windows are deterministic; on an active table rows can still shift
+        between pages mid-scan — re-runs are idempotent by natural key.
+        """
+        params = self._page_params(entity, mode, watermark)
+        offset = 0
+        while True:
+            page_params = dict(params, **{"$skip": str(offset)})
+            rows = self._request_rows(entity, self._table_url(table), page_params)
+            self._observe_incremental(entity, rows)
+            yield from rows
+            if len(rows) < self.PAGE_SIZE:
+                return
+            offset += self.PAGE_SIZE
+
+    def _page_params(
+        self, entity: str, mode: ExtractionMode | None, watermark: str | None
+    ) -> dict[str, str]:
+        params: dict[str, str] = {
+            "$top": str(self.PAGE_SIZE),
+            "$orderby": _ORDER_BY[entity],
+        }
         filters: list[str] = []
         if mode is ExtractionMode.INCREMENTAL and watermark:
             filters.append(f"date_last_modified gt {watermark}")
@@ -379,16 +427,7 @@ class EpicorP21Connector(BaseConnector):
             filters.append(f"{soft.column} eq '{soft.active_value}'")
         if filters:
             params["$filter"] = " and ".join(filters)
-        offset = 0
-        while True:
-            page_params = dict(params, **{"$skip": str(offset)})
-            payload = self._get_json(self._table_url(table), page_params)
-            rows = payload.get("value", [])
-            self._observe_incremental(entity, rows)
-            yield from rows
-            if len(rows) < self.PAGE_SIZE:
-                return
-            offset += self.PAGE_SIZE
+        return params
 
     def _fetch_lines(
         self, entity: str, spec: dict[str, object], fk_value: object
@@ -399,7 +438,8 @@ class EpicorP21Connector(BaseConnector):
         lines: list[dict[str, object]] = []
         offset = 0
         while True:
-            payload = self._get_json(
+            page = self._request_rows(
+                entity,
                 self._table_url(str(lines_table)),
                 {
                     "$top": str(self.PAGE_SIZE),
@@ -407,7 +447,6 @@ class EpicorP21Connector(BaseConnector):
                     "$filter": f"{fk} eq '{fk_value}'",
                 },
             )
-            page = payload.get("value", [])
             lines.extend(page)
             if len(page) < self.PAGE_SIZE:
                 return lines
@@ -423,20 +462,24 @@ class EpicorP21Connector(BaseConnector):
             if current is None or text > current:
                 self._max_incremental_seen[entity] = text
 
-    def _get_json(self, url: str, params: dict[str, str]) -> dict[str, object]:
-        """GET with bearer auth and documented-limits backoff (429/503).
+    def _request_rows(
+        self, entity: str, url: str, params: dict[str, str]
+    ) -> list[dict[str, object]]:
+        """GET one page: bearer auth (one re-mint on 401), documented-limits
+        backoff on 429/503, quarantine on malformed bodies.
 
-        A 401 mid-run means the ~24 h token lapsed despite the cache: mint
-        once and retry the same request before failing.
+        A 200 whose body is not ``{"value": [object, ...]}`` is quarantined
+        with a machine-readable reason and fails the run — never a silent
+        drop, never a partial promote (csv_sftp/NetSuite parity).
         """
         delay = self.BACKOFF_SECONDS
+        backoff_attempts = 0
         reauthorized = False
-        attempt = 0
         while True:
             response = self._client().get(url, params=params, headers=self._headers())
             if response.status_code in (429, 503):
-                attempt += 1
-                if attempt >= self.MAX_RETRIES:
+                backoff_attempts += 1
+                if backoff_attempts >= self.MAX_RETRIES:
                     raise ConnectorError(
                         f"Prophet 21 returned {response.status_code} on {url} after "
                         f"{self.MAX_RETRIES} backoff attempts"
@@ -447,7 +490,8 @@ class EpicorP21Connector(BaseConnector):
                 delay *= 2
                 continue
             if response.status_code == 401 and not reauthorized:
-                # The re-mint does not count against the backoff budget.
+                # A ~24 h token can lapse mid-run: mint once and retry — the
+                # re-mint does not count against the backoff budget.
                 reauthorized = True
                 self._cached_token = None
                 self._token_expiry = 0.0
@@ -456,8 +500,49 @@ class EpicorP21Connector(BaseConnector):
                 response.raise_for_status()
             except httpx.HTTPError as exc:
                 raise ConnectorError(f"Prophet 21 call failed: {exc}") from exc
-            data: dict[str, object] = response.json()
-            return data
+            try:
+                payload: object = response.json()
+            except ValueError as exc:
+                self._quarantine_page(entity, url, response.content, RC_UNPARSEABLE_JSON, str(exc))
+                raise ConnectorError(
+                    f"malformed Prophet 21 response on {url}: body is not JSON"
+                ) from exc
+            rows = payload.get("value") if isinstance(payload, dict) else None
+            if not isinstance(rows, list) or not all(isinstance(row, dict) for row in rows):
+                self._quarantine_page(
+                    entity,
+                    url,
+                    json.dumps(payload, default=str).encode("utf-8"),
+                    RC_MALFORMED_PAGE,
+                    "'value' must be a list of objects",
+                )
+                raise ConnectorError(
+                    f"malformed Prophet 21 page for {entity} at {url}: "
+                    "'value' must be a list of objects"
+                )
+            return rows
+
+    def _quarantine_page(
+        self, entity: str, url: str, body: bytes, reason_code: str, detail: str
+    ) -> None:
+        """Persist an unreadable API page with a machine-readable reason
+        (csv_sftp/NetSuite parity): the run fails, but the offending body is
+        preserved for inspection instead of being dropped silently."""
+        file_name = f"{entity}-{uuid.uuid4().hex}.json"
+        target = self.config.quarantine_root / self.source.source_id / "api_pages" / file_name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        self.store.record_quarantine(
+            QuarantineRecord(
+                source_id=self.source.source_id,
+                batch_id=None,
+                file_name=file_name,
+                reason_code=reason_code,
+                detail=f"{detail} (from {url})",
+                quarantine_path=str(target),
+                quarantined_at=datetime.now(UTC),
+            )
+        )
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}", "Accept": "application/json"}

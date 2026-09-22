@@ -751,6 +751,26 @@ def test_p21_explicit_top_skip_paging(tmp_path: Path, monkeypatch: pytest.Monkey
     assert result.watermark_after == "2026-08-01T10:00:00"
 
 
+def test_p21_pages_are_ordered_by_a_stable_key(tmp_path: Path) -> None:
+    """Spec §6.3 backfill mechanics: $top + $orderby on a stable key so
+    OFFSET windows are deterministic on active tables."""
+    connector = _p21_with_seeded_token(tmp_path)
+    calls: list[httpx.Request] = []
+    transport = httpx.MockTransport(
+        _routing_handler(
+            {"/inv_mast": [_json_response({"value": [{"item_id": "ITEM-0001"}]})]}, calls
+        )
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    connector.extract("items")
+
+    params = dict(calls[0].url.params)
+    assert params["$orderby"] == "item_id"
+    assert params["$top"] == "500"  # $top ALWAYS set
+    assert params["$skip"] == "0"
+
+
 def test_p21_header_driven_lines(tmp_path: Path) -> None:
     connector = _p21_with_seeded_token(tmp_path)
     calls: list[httpx.Request] = []
@@ -808,6 +828,7 @@ def test_p21_header_driven_lines(tmp_path: Path) -> None:
     assert table.column("source_id").to_pylist() == ["SO-0001:1", "SO-0001:2"]
     line_filter = json.loads(json.dumps(dict(calls[-1].url.params)))["$filter"]
     assert line_filter == "oe_hdr_uid eq 'H1'"  # explicit FK filter
+    assert dict(calls[0].url.params)["$orderby"] == "order_no"  # stable-key header pages
 
 
 def test_p21_key_inventory_and_anti_join_delete(tmp_path: Path) -> None:
@@ -959,6 +980,46 @@ def test_p21_incremental_restart_is_a_no_op(tmp_path: Path) -> None:
     assert dict(calls[0].url.params)["$filter"] == (
         "date_last_modified gt 2026-08-01T10:00:00 and delete_flag eq 'N'"
     )
+
+
+def test_p21_quarantines_malformed_page(tmp_path: Path) -> None:
+    """A structurally malformed page is quarantined with a machine-readable
+    reason and fails the run — never a silent drop, never a partial promote."""
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [_json_response({"value": "not-a-list"})]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="malformed"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    record = records[0]
+    assert record.reason_code == "MALFORMED_PAGE"
+    assert record.source_id == "epicor_p21_template"
+    assert json.loads(Path(record.quarantine_path).read_text(encoding="utf-8")) == {
+        "value": "not-a-list"
+    }
+    # a failed run never advances a checkpoint
+    assert connector.store.get_watermark(connector.source.source_id, "items", "backfill") is None
+
+
+def test_p21_quarantines_unparseable_json(tmp_path: Path) -> None:
+    connector = _p21_with_seeded_token(tmp_path)
+    transport = httpx.MockTransport(
+        _routing_handler({"/inv_mast": [httpx.Response(200, content=b"<html>gateway</html>")]}, [])
+    )
+    connector._http_client = httpx.Client(transport=transport)
+
+    with pytest.raises(ConnectorError, match="not JSON"):
+        connector.extract("items")
+
+    records = connector.store.list_quarantine()
+    assert len(records) == 1
+    assert records[0].reason_code == "UNPARSEABLE_JSON"
+    assert Path(records[0].quarantine_path).read_bytes().startswith(b"<html>")
 
 
 def test_p21_dry_run_without_network(tmp_path: Path) -> None:
