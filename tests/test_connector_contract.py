@@ -70,6 +70,12 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         # PO lists stay documented hybrid-channel plans (the spec verifies no
         # AgilityPublic methods exist for them).
         "dmsi_agility_template",
+        # ECI Spruce / RockSolid MAX dealer-mediated file-drop path is coded
+        # (manifest-gated promotion with stale/regenerated refusal, RSM
+        # group/section normalization, scoped full-file anti-join) and
+        # fixture-tested offline — it has never run against a live dealer;
+        # the SOAP Ecommerce API stays NDA-gated future work (spec §2/§8).
+        "eci_spruce_template",
         # Demo Informix tenant: enabled only by the GenBI demo runner, still
         # fixture-driven (the pyodbc transport is stood in by the demo).
         "informix_demo",
@@ -87,11 +93,11 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     }
     for source_id in implemented_templates:
         assert by_id[source_id].maturity is ConnectorMaturity.IMPLEMENTED
-    # The remaining templates are documented skeletons that never fabricate data.
+    # The remaining template is a documented skeleton that never fabricates
+    # data (Eclipse: pending API user provisioning on the tenant).
     skeletons = [c for c in templates if c.source.source_id not in implemented_templates]
     assert {c.source.source_id for c in skeletons} == {
         "epicor_eclipse_template",
-        "eci_spruce_template",
     }
     assert all(c.maturity is ConnectorMaturity.SKELETON for c in skeletons)
 
