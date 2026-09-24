@@ -46,7 +46,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
     assert [c.source.source_id for c in enabled] == ["csvsftp_ridgeline"]
     assert enabled[0].maturity is ConnectorMaturity.IMPLEMENTED
     templates = [c for c in all_connectors if not c.source.enabled]
-    assert len(templates) == 20
+    assert len(templates) == 21
     by_id = {c.source.source_id: c for c in templates}
     # Coded-but-unexercised connectors: never run against a live tenant/site,
     # so they stay credential-gated templates (dlt resources exist, fixtures
