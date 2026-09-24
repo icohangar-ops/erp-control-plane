@@ -20,6 +20,7 @@ FIRST_WAVE = {
     # Demo Informix tenant (GenBI end-to-end demo; runner enables it in memory).
     "informix_demo",
     "cloud_erp_rest_template",
+    "essbase_template",
     # Legacy database connector pack (spec §5 rows 1-9; MariaDB shares MySQL's row).
     "informix_template",
     "db2_luw_template",

@@ -36,8 +36,8 @@ def all_connectors(tmp_path_factory):
 
 def test_every_source_in_sources_yml_builds_a_connector(all_connectors):
     sources = load_source_configs()
-    # 20 first-wave sources + the demo Informix tenant (GenBI demo path).
-    assert len(all_connectors) == len(sources) == 21
+    # 21 first-wave sources + the demo Informix tenant (GenBI demo path).
+    assert len(all_connectors) == len(sources) == 22
     assert {c.source.source_id for c in all_connectors} == {s.source_id for s in sources}
 
 
@@ -99,6 +99,7 @@ def test_demo_source_is_the_only_enabled_connector(all_connectors):
         "sybase_ase_template",
         "openedge_template",
         "sap_hana_template",
+        "essbase_template",
     }
     for source_id in implemented_templates:
         assert by_id[source_id].maturity is ConnectorMaturity.IMPLEMENTED

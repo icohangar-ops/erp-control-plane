@@ -9,6 +9,65 @@ coded-but-unexercised adapters or documented skeletons (see maturity below).**
 
 ## Architecture (one screen)
 
+```mermaid
+flowchart LR
+    subgraph Sources[Source systems]
+        CSV[CSV / SFTP]
+        DB[Legacy databases<br/>Informix · Oracle · SQL Server · PostgreSQL · MySQL]
+        ERP[Cloud ERPs<br/>NetSuite · D365 BC · Epicor · DMSi · ECI]
+        ESS[Oracle Essbase<br/>applications · cubes metadata]
+    end
+
+    subgraph Ingest[Connector and ingestion layer]
+        SDK[Connector SDK<br/>config · auth · paging · watermarks]
+        REG[Source registry<br/>sources.yml]
+        STAGE[(Parquet staging lake<br/>provenance stamped)]
+    end
+
+    subgraph Control[Control plane]
+        CP[(SQLite / PostgreSQL<br/>registrations · checkpoints · hashes)]
+        DQ[Quarantine and<br/>data-quality results]
+    end
+
+    subgraph Transform[Transform and orchestration]
+        DAG[Dagster<br/>extraction and checks]
+        DBT[dbt<br/>staging → canonical → marts]
+        DUCK[(DuckDB<br/>analytics store)]
+    end
+
+    subgraph Consumers[Consumers]
+        API[FastAPI<br/>summary · data · KPIs]
+        BI[Apache Superset<br/>dashboards and RLS]
+        GENBI[Governed GenBI<br/>NL → SQL → audited answers]
+    end
+
+    CSV --> SDK
+    DB --> SDK
+    ERP --> SDK
+    ESS --> SDK
+    REG -. configures .-> SDK
+    SDK --> STAGE
+    SDK <--> CP
+    SDK --> DQ
+    STAGE --> DAG
+    DAG --> DBT
+    DBT --> DUCK
+    DUCK --> API
+    DUCK --> BI
+    DUCK --> GENBI
+    CP --> DAG
+    DQ --> DAG
+
+    classDef source fill:#e8f1fb,stroke:#3269a8,color:#17324d
+    classDef platform fill:#eaf7ee,stroke:#2f855a,color:#173d2b
+    classDef control fill:#fff4dc,stroke:#b7791f,color:#4a2c0a
+    classDef consumer fill:#f3eafa,stroke:#805ad5,color:#2d174d
+    class CSV,DB,ERP,ESS source
+    class SDK,REG,STAGE,DAG,DBT,DUCK platform
+    class CP,DQ control
+    class API,BI,GENBI consumer
+```
+
 ```
 source ERPs ──connectors──▶ Parquet lake (staging, provenance-stamped)
                                 │
@@ -80,6 +139,7 @@ make test && make lint
 | Epicor Eclipse | REST session-token API (Caché) | ⚙️ coded, fixture-tested, tenant-contract-gated; **never exercised against a live tenant** |
 | ECI Spruce / RockSolid MAX | CSV/pipe file drop (manifest-gated) · SOAP Ecommerce API NDA-gated | ⚙️ coded, fixture-tested, dealer-onboarding-gated; **never exercised against a live dealer** |
 | Dynamics 365 BC | API v2 + BACPAC backfill | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live tenant** |
+| Oracle Essbase | REST v1 applications and cubes metadata | ⚙️ coded, fixture-tested, credential-gated; **never exercised against a live tenant** |
 
 Skeletons document the real extraction surface and stop at
 `ConnectorNotImplemented` — no invented API behavior. Add yours per

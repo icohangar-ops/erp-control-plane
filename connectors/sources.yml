@@ -214,6 +214,21 @@ sources:
       incremental_query: ${CLOUD_ERP_INCREMENTAL_QUERY:-}
       page_size: ${CLOUD_ERP_PAGE_SIZE:-}
 
+  - source_id: essbase_template
+    erp: essbase
+    description: >
+      Oracle Essbase REST v1 metadata connector — full snapshots of applications
+      and cubes (application databases), using documented offset/limit paging.
+      Data export jobs and Outbox ZIP downloads remain a separate onboarding
+      surface; enable only after validating the tenant REST base path and auth.
+    enabled: false
+    settings:
+      base_url: ${ESSBASE_BASE_URL:-}
+      auth_mode: ${ESSBASE_AUTH_MODE:-basic}
+      username: ${ESSBASE_USERNAME:-}
+      password: ${ESSBASE_PASSWORD:-}
+      token: ${ESSBASE_TOKEN:-}
+
   # ------------------------------------------------------------------
   # Legacy database connector pack (spec §5 rows 1–9). Every class shares the
   # DB-API batch extraction path with anti-join delete reconciliation; CDC is

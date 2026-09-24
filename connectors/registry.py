@@ -21,6 +21,7 @@ from connectors.cloud_erp_rest.connector import CloudErpRestConnector
 from connectors.csv_sftp import CsvSftpConnector
 from connectors.d365_bc.connector import DynamicsBcConnector
 from connectors.dmsi_agility.connector import DmsiAgilityConnector
+from connectors.essbase.connector import EssbaseConnector
 from connectors.eci_spruce.connector import EciSpruceConnector
 from connectors.epicor_eclipse.connector import EpicorEclipseConnector
 from connectors.epicor_p21.connector import EpicorP21Connector
@@ -47,6 +48,7 @@ CONNECTOR_CLASSES: dict[str, type[BaseConnector]] = {
     NetsuiteConnector.erp_id: NetsuiteConnector,
     BisTrackConnector.erp_id: BisTrackConnector,
     DmsiAgilityConnector.erp_id: DmsiAgilityConnector,
+    EssbaseConnector.erp_id: EssbaseConnector,
     EpicorP21Connector.erp_id: EpicorP21Connector,
     EpicorEclipseConnector.erp_id: EpicorEclipseConnector,
     EciSpruceConnector.erp_id: EciSpruceConnector,
