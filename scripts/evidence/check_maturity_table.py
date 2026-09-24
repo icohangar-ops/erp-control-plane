@@ -24,6 +24,7 @@ ERP_TO_CONNECTOR_DIR = {
     "Epicor Eclipse": "epicor_eclipse",
     "ECI Spruce / RockSolid MAX": "eci_spruce",
     "Dynamics 365 BC": "d365_bc",
+    "Oracle Essbase": "essbase",
     "IBM Informix (primary database connector)": "legacy/informix",
 }
 SKELETON_MARKER = "SkeletonConnector"
