@@ -1,0 +1,71 @@
+name: dim_customer
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: dim_customer
+columns:
+- name: customer_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Foreign key to dim_customer.
+  is_primary_key: true
+- name: source_customer_no
+  type: VARCHAR
+  properties:
+    description: Native customer number in the source ERP; kept for lineage and crosswalk back to the
+      source.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: customer_name
+  type: VARCHAR
+  properties:
+    description: Customer legal or trading name as consolidated in the canonical layer.
+  is_primary_key: false
+- name: customer_class
+  type: VARCHAR
+  properties:
+    description: Customer classification used for segmentation (e.g. retail, contractor, dealer).
+  is_primary_key: false
+- name: terms
+  type: VARCHAR
+  properties:
+    description: Payment terms code from the source ERP.
+  is_primary_key: false
+- name: credit_limit
+  type: DECIMAL(38,9)
+  properties:
+    description: Approved credit limit in USD.
+  is_primary_key: false
+- name: city
+  type: VARCHAR
+  properties:
+    description: Primary address city.
+  is_primary_key: false
+- name: state
+  type: VARCHAR
+  properties:
+    description: Primary address state or province.
+  is_primary_key: false
+- name: postal_code
+  type: VARCHAR
+  properties:
+    description: Primary address postal code.
+  is_primary_key: false
+- name: last_batch_id
+  type: VARCHAR
+  properties:
+    description: Last batch id (VARCHAR).
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: One row per consolidated customer, grouped from source customer masters across acquisitions.
+primary_key: customer_key

@@ -1,0 +1,129 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install ruff
+      - run: ruff check .
+      - run: ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e ".[orchestration,transform]" pytest
+      - run: pytest -q
+
+  dbt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e . dbt-duckdb
+      - name: Extract seeded dealer to Parquet
+        run: python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
+      - run: python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
+      - name: dbt build (all models + tests, DuckDB)
+        # CSV-path lineage only — the informix_demo staging models read Parquet
+        # produced by the demo runner (demo/run_informix_demo.py), which
+        # symmetrically excludes the csvsftp staging when it builds.
+        run: mkdir -p data/analytics && dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
+      - name: GenBI golden-set parity (Ragas eval gate)
+        run: python analytics/evals/run_evals.py --check-parity
+
+  compose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker compose config -q
+      - run: docker compose --profile bi config -q
+      - name: GenBI profile validates (spec §2)
+        run: docker compose --profile genbi config -q
+      - name: GenBI offline profile validates
+        run: docker compose --profile genbi --profile genbi-offline config -q
+
+  genbi:
+    # GenBI Phase 1: curated MDL validation + spec §3.3 dbt↔MDL coupling gate.
+    # A dbt change that alters mart grain or a metric column fails here unless
+    # the corresponding MDL model is updated in the same PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e . dbt-duckdb
+      - name: Build dbt artifacts and marts
+        run: |
+          mkdir -p data/analytics
+          python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
+          python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
+          dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
+          dbt docs generate --project-dir dbt --profiles-dir dbt --target demo
+      - name: Validate curated MDL (structure, boundary, coupling, executability)
+        run: python -m genbi.mdl_gen validate --duckdb data/analytics/analytics.duckdb
+      - name: Enforce dbt↔MDL coupling (spec §3.3)
+        run: python -m genbi.mdl_gen check-coupling
+
+  metric-registry:
+    # Semantic metric registry gate ([Data] P1): the registry may only reference
+    # models and columns dbt defines, and recorded population sizes must match
+    # the built warehouse. A dbt change that alters grain or populations fails
+    # here until the registry is re-measured in the same PR.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e . dbt-duckdb
+      - name: Build dbt artifacts and marts
+        run: |
+          mkdir -p data/analytics
+          python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines
+          python -m connectors.cli extract --source csvsftp_ridgeline  # remaining entities
+          dbt build --project-dir dbt --profiles-dir dbt --target demo --exclude models/staging/informix_demo
+      - name: Enforce metric registry (schema, manifest cross-check, measured populations)
+        run: python -m analytics.metrics.check --dbt-dir dbt --duckdb data/analytics/analytics.duckdb
+
+  guardrail-fixtures:
+    # Guardrail fixture coupling gate ([Verticals] P5): a change to a
+    # prompt-bearing policy surface (GenBI guardrails, CHP gate) without a
+    # same-PR fixture update fails here — policy without fixtures rots.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Enforce guardrail fixture coupling (same-PR fixture updates)
+        run: python -m guardrail_fixtures.check --base="origin/${{ github.base_ref || 'main' }}"
+
+  evidence-matrix:
+    # Evidence matrix gate ([Data] deterministic-verification requirement): every
+    # capability claim in evidence/matrix.yaml must resolve to deterministic
+    # evidence on every PR. The vendored verifier is stdlib-only, so this job runs
+    # before and without any install step; fail-closed — exit 0 only when every
+    # claim verifies. No skip flags, no allowlists, no quiet modes.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tools/verify_evidence_matrix.py

@@ -1,0 +1,150 @@
+name: fact_sales_order_line
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: fact_sales_order_line
+columns:
+- name: order_line_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Surrogate order-line key (source document + line).
+  is_primary_key: true
+- name: order_key
+  type: VARCHAR
+  properties:
+    description: Source sales-order identifier.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: source_doc_no
+  type: VARCHAR
+  properties:
+    description: Native document number in the source ERP (invoice, order, PO, or journal).
+  is_primary_key: false
+- name: source_line_no
+  type: BIGINT
+  properties:
+    description: Native line number within the source document.
+  is_primary_key: false
+- name: customer_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_customer.
+  is_primary_key: false
+- name: item_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_item.
+  is_primary_key: false
+- name: location_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_location.
+  is_primary_key: false
+- name: salesperson_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_salesperson.
+  is_primary_key: false
+- name: order_date
+  type: DATE
+  properties:
+    description: Order entry date (join to dim_date.date_key).
+  is_primary_key: false
+- name: promised_date
+  type: DATE
+  properties:
+    description: Date promised to the customer.
+  is_primary_key: false
+- name: shipped_date
+  type: DATE
+  properties:
+    description: Date the line shipped (null until shipped).
+  is_primary_key: false
+- name: order_status
+  type: VARCHAR
+  properties:
+    description: Line status from the source ERP.
+  is_primary_key: false
+- name: uom
+  type: VARCHAR
+  properties:
+    description: Selling unit of measure.
+  is_primary_key: false
+- name: ordered_qty
+  type: BIGINT
+  properties:
+    description: Quantity ordered.
+  is_primary_key: false
+- name: filled_qty
+  type: BIGINT
+  properties:
+    description: Quantity filled (shipped) to date.
+  is_primary_key: false
+- name: cancelled_qty
+  type: BIGINT
+  properties:
+    description: Quantity cancelled.
+  is_primary_key: false
+- name: unit_price
+  type: DECIMAL(38,9)
+  properties:
+    description: Invoiced unit price in USD.
+  is_primary_key: false
+- name: unit_cost
+  type: DECIMAL(38,9)
+  properties:
+    description: Valuation unit cost in USD.
+  is_primary_key: false
+- name: ordered_amount
+  type: DECIMAL(38,9)
+  properties:
+    description: Ordered value in USD.
+  is_primary_key: false
+- name: filled_amount
+  type: DECIMAL(38,9)
+  properties:
+    description: Filled value in USD.
+  is_primary_key: false
+- name: is_on_time
+  type: BOOLEAN
+  properties:
+    description: True when the line shipped on or before the promised date.
+  is_primary_key: false
+- name: is_line_complete
+  type: BOOLEAN
+  properties:
+    description: True when the line is fully filled.
+  is_primary_key: false
+- name: is_backordered
+  type: BOOLEAN
+  properties:
+    description: True when the line remains short-shipped and active.
+  is_primary_key: false
+- name: source_file
+  type: VARCHAR
+  properties:
+    description: Source file this row was extracted from (lineage).
+  is_primary_key: false
+- name: source_row_no
+  type: BIGINT
+  properties:
+    description: Row number within the source file (lineage).
+  is_primary_key: false
+- name: batch_id
+  type: VARCHAR
+  properties:
+    description: Identifier of the dlt ingestion batch that loaded this row.
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: Order-line grain; service-level flags feed fill/OTIF KPIs.
+primary_key: order_line_key

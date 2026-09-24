@@ -1,0 +1,210 @@
+# =============================================================================
+# Semantic metric registry — the only naming authority for metric populations
+# over the canonical dbt warehouse.
+#
+# Ported from the cohortc pattern (architecture review [Data] P1): every metric
+# is named exactly once, qualified by source system (`metric@source_system` —
+# the source side matches the connector erp_id stamp), bound to a dbt model +
+# expression, and carries a MEASURED population size. Resolution refuses
+# unknown names and ambiguous bare names — it never guesses
+# (analytics/metrics/registry.py).
+#
+# dbt stays the single source of truth: entries may only bind to modeled dbt
+# models and reference columns the dbt manifest declares. Mart-bound entries
+# reference the dbt column bare; the registry never restates mart math.
+#
+# After any dbt data or model change, re-measure and update `measured`:
+#   make metrics-check
+# =============================================================================
+schema_version: 1
+metrics:
+  # ---- Population metrics (canonical fact grain; the count IS the metric) ----
+  - name: open_po@csv_sftp
+    description: >-
+      Open purchase-order lines for the csv_sftp dealer feed — lines ordered
+      but not yet fully received (received_qty below ordered_qty).
+    dbt_model: fact_purchase_order_line
+    expression: count(*) filter (where not is_received_in_full)
+    population:
+      count_sql: |
+        select count(*) from main_canonical.fact_purchase_order_line
+        where source_system = 'csv_sftp' and not is_received_in_full
+      measured: 69
+
+  # ---- Value metrics (kpi_headline grain; dbt computes, the registry references) ----
+  - name: gmroi@csv_sftp
+    description: >-
+      GMROI — gross margin return on inventory investment — annualized on the
+      analysis window (computed by dbt in kpi_inventory).
+    dbt_model: kpi_headline
+    expression: gmroi
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: inventory_turns@csv_sftp
+    description: >-
+      Annualized inventory turns for the analysis window (computed by dbt in
+      kpi_inventory).
+    dbt_model: kpi_headline
+    expression: inventory_turns
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: dio_days@csv_sftp
+    description: >-
+      Days inventory outstanding (computed by dbt in kpi_inventory).
+    dbt_model: kpi_headline
+    expression: dio_days
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: weeks_of_supply@csv_sftp
+    description: >-
+      Weeks of supply carried on hand (computed by dbt in kpi_inventory).
+    dbt_model: kpi_headline
+    expression: weeks_of_supply
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: gross_margin_pct@csv_sftp
+    description: >-
+      Gross margin percentage for the analysis window (computed by dbt in
+      kpi_finance).
+    dbt_model: kpi_headline
+    expression: gross_margin_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: line_fill_rate@csv_sftp
+    description: >-
+      Share of order lines shipped complete (computed by dbt in kpi_service).
+    dbt_model: kpi_headline
+    expression: line_fill_rate
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: order_fill_rate@csv_sftp
+    description: >-
+      Share of orders shipped complete (computed by dbt in kpi_service).
+    dbt_model: kpi_headline
+    expression: order_fill_rate
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: otd_pct@csv_sftp
+    description: >-
+      Share of orders shipped on time (computed by dbt in kpi_service).
+    dbt_model: kpi_headline
+    expression: otd_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: otif_pct@csv_sftp
+    description: >-
+      On-time in-full share of orders (computed by dbt in kpi_service).
+    dbt_model: kpi_headline
+    expression: otif_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: backorder_rate@csv_sftp
+    description: >-
+      Share of order lines that end up backordered (computed by dbt in
+      kpi_service).
+    dbt_model: kpi_headline
+    expression: backorder_rate
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: vendor_fill_rate@csv_sftp
+    description: >-
+      Vendor fill rate — received quantity over ordered quantity (computed by
+      dbt in kpi_purchasing).
+    dbt_model: kpi_headline
+    expression: vendor_fill_rate
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: ppv_pct@csv_sftp
+    description: >-
+      Purchase price variance as a share of standard-cost receipts (computed
+      by dbt in kpi_purchasing).
+    dbt_model: kpi_headline
+    expression: ppv_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: dso_days@csv_sftp
+    description: >-
+      Days sales outstanding (computed by dbt in kpi_finance).
+    dbt_model: kpi_headline
+    expression: dso_days
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: dpo_days@csv_sftp
+    description: >-
+      Days payable outstanding (computed by dbt in kpi_finance).
+    dbt_model: kpi_headline
+    expression: dpo_days
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: ccc_days@csv_sftp
+    description: >-
+      Cash conversion cycle in days (computed by dbt in kpi_finance).
+    dbt_model: kpi_headline
+    expression: ccc_days
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: close_cycle_days@csv_sftp
+    description: >-
+      Monthly close cycle length in days (computed by dbt in kpi_finance).
+    dbt_model: kpi_headline
+    expression: close_cycle_days
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: same_branch_revenue_pct@csv_sftp
+    description: >-
+      Share of revenue that is same-branch (computed by dbt in kpi_growth).
+    dbt_model: kpi_headline
+    expression: same_branch_revenue_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: organic_revenue_pct@csv_sftp
+    description: >-
+      Share of revenue that is organic (computed by dbt in kpi_growth).
+    dbt_model: kpi_headline
+    expression: organic_revenue_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: acquired_revenue_pct@csv_sftp
+    description: >-
+      Share of revenue that comes from acquisitions (computed by dbt in
+      kpi_growth).
+    dbt_model: kpi_headline
+    expression: acquired_revenue_pct
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: sales_per_fte_annualized@csv_sftp
+    description: >-
+      Annualized sales per FTE in USD (computed by dbt in kpi_productivity).
+    dbt_model: kpi_headline
+    expression: sales_per_fte_annualized
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1
+  - name: avg_ticket@csv_sftp
+    description: >-
+      Average ticket — revenue per invoice (computed by dbt in
+      kpi_productivity).
+    dbt_model: kpi_headline
+    expression: avg_ticket
+    population:
+      count_sql: select count(*) from main_marts.kpi_headline
+      measured: 1

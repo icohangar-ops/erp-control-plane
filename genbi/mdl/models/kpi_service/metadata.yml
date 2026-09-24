@@ -1,0 +1,38 @@
+name: kpi_service
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_service
+columns:
+- name: line_fill_rate
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Filled qty (capped at ordered) / ordered qty over active order lines (0-1).
+- name: backorder_rate
+  type: DOUBLE
+  properties:
+    description: Short-shipped active lines / active lines (0-1).
+- name: active_line_count
+  type: BIGINT
+  properties:
+    description: Active order lines in the window.
+- name: order_count
+  type: BIGINT
+  properties:
+    description: Orders in the window.
+- name: order_fill_rate
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: Orders whose every line is complete / all orders (0-1).
+- name: otd_pct
+  type: DOUBLE
+  properties:
+    description: Fully shipped orders shipped on time / fully shipped orders (0-1).
+- name: otif_pct
+  type: DOUBLE
+  properties:
+    description: Orders complete AND on time / all orders (0-1).
+properties:
+  description: Line fill, order fill, OTD, OTIF, backorder rate.

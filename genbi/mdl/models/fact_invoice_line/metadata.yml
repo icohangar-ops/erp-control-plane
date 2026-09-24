@@ -1,0 +1,131 @@
+name: fact_invoice_line
+table_reference:
+  catalog: analytics
+  schema: main_canonical
+  table: fact_invoice_line
+columns:
+- name: invoice_line_key
+  type: VARCHAR
+  not_null: true
+  properties:
+    description: Surrogate invoice-line key (source document + line).
+  is_primary_key: true
+- name: invoice_key
+  type: VARCHAR
+  properties:
+    description: Source invoice identifier.
+  is_primary_key: false
+- name: order_key
+  type: VARCHAR
+  properties:
+    description: Source sales-order identifier.
+  is_primary_key: false
+- name: source_system
+  type: VARCHAR
+  properties:
+    description: Originating source ERP for this row; acquisitions keep their system of record until re-platformed.
+  is_primary_key: false
+- name: source_doc_no
+  type: VARCHAR
+  properties:
+    description: Native document number in the source ERP (invoice, order, PO, or journal).
+  is_primary_key: false
+- name: source_line_no
+  type: BIGINT
+  properties:
+    description: Native line number within the source document.
+  is_primary_key: false
+- name: source_order_no
+  type: VARCHAR
+  properties:
+    description: Native sales-order number in the source ERP linked to this invoice line.
+  is_primary_key: false
+- name: customer_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_customer.
+  is_primary_key: false
+- name: item_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_item.
+  is_primary_key: false
+- name: location_key
+  type: VARCHAR
+  properties:
+    description: Foreign key to dim_location.
+  is_primary_key: false
+- name: invoice_date
+  type: DATE
+  properties:
+    description: Invoice date (join to dim_date.date_key).
+  is_primary_key: false
+- name: uom
+  type: VARCHAR
+  properties:
+    description: Selling unit of measure.
+  is_primary_key: false
+- name: invoiced_qty
+  type: BIGINT
+  properties:
+    description: Quantity invoiced.
+  is_primary_key: false
+- name: unit_price
+  type: DECIMAL(38,9)
+  properties:
+    description: Invoiced unit price in USD.
+  is_primary_key: false
+- name: unit_cost
+  type: DECIMAL(38,9)
+  properties:
+    description: Valuation unit cost in USD.
+  is_primary_key: false
+- name: revenue_amount
+  type: DECIMAL(38,9)
+  not_null: true
+  properties:
+    description: Invoiced revenue in USD.
+  is_primary_key: false
+- name: cogs_amount
+  type: DECIMAL(38,9)
+  properties:
+    description: Invoiced cost of goods sold in USD.
+  is_primary_key: false
+- name: gross_margin_amount
+  type: DECIMAL(38,9)
+  properties:
+    description: Gross margin in USD (revenue minus COGS).
+  is_primary_key: false
+- name: freight_amt
+  type: DECIMAL(38,9)
+  properties:
+    description: Freight charges billed in USD.
+  is_primary_key: false
+- name: tax_amt
+  type: DECIMAL(38,9)
+  properties:
+    description: Sales tax billed in USD.
+  is_primary_key: false
+- name: source_file
+  type: VARCHAR
+  properties:
+    description: Source file this row was extracted from (lineage).
+  is_primary_key: false
+- name: source_row_no
+  type: BIGINT
+  properties:
+    description: Row number within the source file (lineage).
+  is_primary_key: false
+- name: batch_id
+  type: VARCHAR
+  properties:
+    description: Identifier of the dlt ingestion batch that loaded this row.
+  is_primary_key: false
+- name: loaded_at
+  type: VARCHAR
+  properties:
+    description: Timestamp the row was loaded into the canonical layer.
+  is_primary_key: false
+properties:
+  description: Invoiced revenue and COGS at line grain.
+primary_key: invoice_line_key

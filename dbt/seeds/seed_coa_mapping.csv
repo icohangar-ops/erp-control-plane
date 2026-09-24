@@ -1,0 +1,15 @@
+source_company_id,source_gl_account,source_account_name,target_consolidated_account,effective_start_date,effective_end_date,mapping_rule_type,active_flag
+ridgeline_lumber,1010,Cash - Operating,GRP-1000,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,1100,Accounts Receivable,GRP-1100,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,1200,Inventory,GRP-1200,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,2000,Accounts Payable,GRP-2000,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,3900,Owner Equity,GRP-3900,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,4000,Sales Revenue,GRP-4000,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,4010,Freight Recovered,GRP-4010,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,5000,Cost of Goods Sold,GRP-5000,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6100,Payroll Expense,GRP-5100,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6200,Rent Expense,GRP-5200,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6300,Utilities Expense,GRP-5300,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6400,Insurance Expense,GRP-5400,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6500,Supplies Expense,GRP-5500,2026-01-01,9999-12-31,DIRECT,TRUE
+ridgeline_lumber,6900,Owner Compensation,GRP-5900,2026-01-01,9999-12-31,ADDBACK,TRUE

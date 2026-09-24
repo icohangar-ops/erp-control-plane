@@ -1,0 +1,45 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# Environments & credentials — never commit real secrets
+.env
+.env.*
+!.env.example
+
+# Pipeline data (regenerable by `make demo`)
+/data/
+
+# GenBI: generated MDL drafts are review input, never versioned
+genbi/draft/
+
+# Dagster local state
+/.dagster/
+dagster_home/local/
+
+# dbt
+dbt/target/
+dbt/package-lock.yml
+dbt/logs/
+dbt/packages/
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# Test & tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.vercel
+
+# GenBI eval reports (regenerable) and the isolated ragas venv
+/analytics/evals/reports/
+/.venv-evals/

@@ -1,0 +1,20 @@
+select
+    po_no,
+    line_no,
+    po_date,
+    vendor_no,
+    branch_code,
+    item_no,
+    uom,
+    ordered_qty,
+    received_qty,
+    unit_cost_actual,
+    unit_cost_standard,
+    received_date,
+    source_system,
+    source_id,
+    source_file,
+    source_row_no,
+    batch_id,
+    loaded_at
+from {{ source('csvsftp_ridgeline', 'purchase_order_lines') }}

@@ -1,0 +1,14 @@
+customer_no,customer_name,customer_class,terms,credit_limit,address1,city,state,postal_code
+CT-1001,Hensley Framing LLC,CONTRACTOR,NET30,60000,2147 Volcano Rd,Bristol,TN,37620
+CT-1002,Crouch & Sons Drywall,CONTRACTOR,NET30,35000,88 Oakwood Ave,Kingsport,TN,37660
+CT-1003,Triple Creek Roofing,CONTRACTOR,NET30,45000,1 Creekside Dr,Bristol,TN,37620
+CT-1004,Mountain View Builders,CONTRACTOR,NET30,80000,4500 Highway 11W,Bristol,VA,24201
+CT-1005,Bowman Electric Inc,CONTRACTOR,NET30,20000,92 Chestnut St,Kingsport,TN,37663
+CT-1006,Appalachian Exteriors,CONTRACTOR,NET45,30000,610 Sunset Dr,Johnson City,TN,37601
+CT-1007,Steele Renovations,CONTRACTOR,NET30,15000,77 Mill Pond Rd,Blountville,TN,37617
+CT-1008,Fairview Homes Inc,CONTRACTOR,NET30,55000,3900 Fairview Rd,Grey,TN,37618
+BL-3001,Colonial Development Group,BUILDER,NET45,150000,1200 Market St Ste 400,Kingsport,TN,37662
+BL-3002,High Point Custom Homes,BUILDER,NET45,90000,55 High Point Ct,Johnson City,TN,37615
+RT-2001,Walk-In Retail,RETAIL,CASH,0,1100 Volunteer Pkwy,Bristol,TN,37620
+RT-2002,Doyle Handyman Services,RETAIL,CASH,0,19 Locust Ln,Bristol,TN,37620
+RT-2003,Vance Property Management,RETAIL,NET15,8000,580 Willow St,Kingsport,TN,37664

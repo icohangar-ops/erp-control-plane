@@ -1,0 +1,7 @@
+name: inventory_position_latest
+statement: SELECT s.snapshot_date, i.item_key, i.description, i.category, SUM(s.on_hand_qty) AS on_hand_qty,
+  SUM(s.inventory_value) AS inventory_value FROM fact_inventory_snapshot s JOIN dim_item i ON s.item_key
+  = i.item_key WHERE s.snapshot_date = (SELECT MAX(snapshot_date) FROM fact_inventory_snapshot) GROUP
+  BY 1, 2, 3, 4 ORDER BY inventory_value DESC
+properties:
+  description: Latest inventory position per item with its category (governed view).

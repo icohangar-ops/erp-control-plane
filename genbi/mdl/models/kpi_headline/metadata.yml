@@ -1,0 +1,107 @@
+name: kpi_headline
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_headline
+columns:
+- name: gmroi
+  type: DOUBLE
+  not_null: true
+  properties:
+    description: 'Gross-margin return on inventory investment: annualized gross margin / average inventory
+      value.'
+- name: inventory_turns
+  type: DOUBLE
+  properties:
+    description: 'Inventory turns annualized to the window: window COGS x annualization / average inventory
+      value.'
+- name: dio_days
+  type: DOUBLE
+  properties:
+    description: 'Days inventory outstanding: 365 / inventory turns.'
+- name: weeks_of_supply
+  type: DOUBLE
+  properties:
+    description: Average inventory value / (window COGS / window days x 7).
+- name: gross_margin_pct
+  type: DOUBLE
+  properties:
+    description: Gross margin as a share of window revenue (0-1 scale).
+- name: line_fill_rate
+  type: DOUBLE
+  properties:
+    description: Filled qty (capped at ordered) / ordered qty over active order lines (0-1).
+- name: order_fill_rate
+  type: DOUBLE
+  properties:
+    description: Orders whose every line is complete / all orders (0-1).
+- name: otd_pct
+  type: DOUBLE
+  properties:
+    description: Fully shipped orders shipped on time / fully shipped orders (0-1).
+- name: otif_pct
+  type: DOUBLE
+  properties:
+    description: Orders complete AND on time / all orders (0-1).
+- name: backorder_rate
+  type: DOUBLE
+  properties:
+    description: Short-shipped active lines / active lines (0-1).
+- name: vendor_fill_rate
+  type: DOUBLE
+  properties:
+    description: Received qty / ordered qty over PO lines in the window (0-1).
+- name: ppv_pct
+  type: DOUBLE
+  properties:
+    description: Purchase price variance as a share of standard-cost receipts (0-1).
+- name: dso_days
+  type: DOUBLE
+  properties:
+    description: 'Days sales outstanding: AR balance / window revenue x 365.'
+- name: dpo_days
+  type: DOUBLE
+  properties:
+    description: 'Days payable outstanding: AP balance / window COGS x 365.'
+- name: ccc_days
+  type: DOUBLE
+  properties:
+    description: 'Cash conversion cycle in days: DIO + DSO - DPO.'
+- name: close_cycle_days
+  type: DOUBLE
+  properties:
+    description: Average days from period end to close completion.
+- name: same_branch_revenue_pct
+  type: DOUBLE
+  properties:
+    description: Share of revenue sold by the customer's modal branch (0-1).
+- name: organic_revenue_pct
+  type: DOUBLE
+  properties:
+    description: Share of revenue from branches owned before the window start (0-1).
+- name: acquired_revenue_pct
+  type: DOUBLE
+  properties:
+    description: Share of revenue from branches acquired during the window (0-1).
+- name: sales_per_fte_annualized
+  type: DOUBLE
+  properties:
+    description: Annualized window revenue / total group FTE.
+- name: avg_ticket
+  type: DOUBLE
+  properties:
+    description: Window revenue / distinct invoices.
+- name: window_start
+  type: DATE
+  properties:
+    description: Analysis window start (invoiced-activity bounds).
+- name: window_end
+  type: DATE
+  properties:
+    description: Analysis window end.
+- name: window_days
+  type: BIGINT
+  properties:
+    description: Analysis window length in days.
+properties:
+  description: Single-row headline summary for the demo/BI surface.

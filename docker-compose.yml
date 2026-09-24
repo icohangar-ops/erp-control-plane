@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${CP_PG_USER:-control_plane}
+      POSTGRES_PASSWORD: ${CP_PG_PASSWORD:?CP_PG_PASSWORD must be set}
+      POSTGRES_DB: ${CP_PG_DB:-control_plane}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${CP_PG_USER:-control_plane}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  dagster-webserver:
+    image: python:3.11-slim
+    command: >
+      sh -c "pip install -e . dagster-webserver dagster-postgres dagster-duckdb dagster-dbt >/dev/null &&
+             dagster-webserver -w orchestration.definitions -h 0.0.0.0 -p 3000"
+    environment: &dagster_env
+      CONTROL_PLANE_BACKEND: postgres
+      CP_PG_HOST: postgres
+      CP_PG_PORT: "5432"
+      CP_PG_USER: ${CP_PG_USER:-control_plane}
+      CP_PG_PASSWORD: ${CP_PG_PASSWORD:?CP_PG_PASSWORD must be set}
+      CP_PG_DB: ${CP_PG_DB:-control_plane}
+      DAGSTER_PG_URL: postgresql://${CP_PG_USER:-control_plane}:${CP_PG_PASSWORD:?CP_PG_PASSWORD must be set}@postgres/dagster
+    ports:
+      - "127.0.0.1:3000:3000"
+    volumes:
+      - .:/work
+    working_dir: /work
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  dagster-daemon:
+    image: python:3.11-slim
+    command: >
+      sh -c "pip install -e . dagster-webserver dagster-postgres dagster-duckdb dagster-dbt >/dev/null &&
+             dagster-daemon run"
+    environment: *dagster_env
+    volumes:
+      - .:/work
+    working_dir: /work
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  superset:
+    image: apache/superset:4.1.1
+    profiles: ["bi"]
+    ports:
+      - "127.0.0.1:8088:8088"
+    environment:
+      SUPERSET_SECRET_KEY: ${SUPERSET_SECRET_KEY:?SUPERSET_SECRET_KEY must be set}
+    volumes:
+      - ./analytics/superset:/app/analytics
+      # READ_ONLY analytics DuckDB for the dealer dashboard datasets and the
+      # GenBI promotion loop's datasets (spec §4.2.6). Same container path the
+      # genbi profile mounts, so every consumer shares one canonical URI
+      # (duckdb:////data/analytics/analytics.duckdb?access_mode=READ_ONLY).
+      - ./data/analytics:/data/analytics:ro
+
+# GenBI profile (WrenAI semantic layer + NL questioning). Defined in its own
+# file, included additively — the base deployment above is unchanged.
+include:
+  - docker/compose/genbi/wrenai.yml
+
+volumes:
+  pgdata:

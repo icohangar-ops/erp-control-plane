@@ -1,0 +1,47 @@
+version: 2
+
+models:
+  - name: stg_informix__items
+    description: Item master from the demo Informix extraction (legacy connector pack).
+    columns:
+      - name: item_no
+        tests: [not_null]
+      - name: source_id
+        tests: [not_null]
+  - name: stg_informix__customers
+    columns:
+      - name: customer_no
+        tests: [not_null]
+  - name: stg_informix__vendors
+    columns:
+      - name: vendor_no
+        tests: [not_null]
+  - name: stg_informix__salespeople
+    columns:
+      - name: salesperson_code
+        tests: [not_null]
+  - name: stg_informix__sales_order_lines
+    description: One row per ordered line per source row.
+    columns:
+      - name: order_no
+        tests: [not_null]
+      - name: line_no
+        tests: [not_null]
+  - name: stg_informix__purchase_order_lines
+    columns:
+      - name: po_no
+        tests: [not_null]
+  - name: stg_informix__invoice_lines
+    columns:
+      - name: invoice_no
+        tests: [not_null]
+      - name: line_no
+        tests: [not_null]
+  - name: stg_informix__inventory_snapshots
+    columns:
+      - name: snapshot_date
+        tests: [not_null]
+  - name: stg_informix__gl_entries
+    columns:
+      - name: journal_no
+        tests: [not_null]

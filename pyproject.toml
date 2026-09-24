@@ -1,0 +1,72 @@
+[project]
+name = "construction-supplies-erp-control-plane"
+version = "0.1.0"
+description = "Multi-ERP ingestion control plane and canonical analytics model for construction-supplies distribution roll-ups."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [{ name = "Cubiczan Engineering" }]
+
+dependencies = [
+    "consensus-hardening-protocol==0.1.1",
+    "duckdb==1.5.5",
+    "fastapi==0.141.1",
+    "pyarrow==25.0.1",
+    "PyYAML==6.0.3",
+    "httpx==0.28.1",
+    "psycopg2-binary==2.9.13",
+    "python-dotenv==1.2.1",
+    "dlt==1.30.0",
+]
+
+[project.optional-dependencies]
+orchestration = [
+    "dagster==1.13.23",
+    "dagster-dbt==0.29.23",
+    "dagster-webserver==1.13.23",
+]
+transform = [
+    "dbt-core==1.12.5",
+    "dbt-duckdb==1.11.0",
+]
+dev = [
+    "pytest==9.0.3",
+    "uvicorn==0.52.3",
+    "ruff==0.16.8",
+    "dbt-core==1.12.5",
+    "dbt-duckdb==1.11.0",
+    "dagster==1.13.23",
+    "dagster-dbt==0.29.23",
+]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["connectors*", "control_plane*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+# Vendored upstream code keeps its upstream formatting — do not lint or format it:
+# the Wren MCP server (pinned at wren-engine 47ca29e) and the canonical evidence-
+# matrix verifier (byte-identical vendored copy; hash is pinned in the matrix).
+extend-exclude = ["docker/compose/genbi/mcp-server", "tools/verify_evidence_matrix.py"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# E501 handled by formatter; long descriptive identifiers are welcome in this codebase.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# Skeleton connectors deliberately raise NotImplementedError paths and carry TODO markers.
+"connectors/stubs/*.py" = ["B"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.vercel]
+# Vercel Python runtime entrypoint (module:variable) for the demo KPI API in api/.
+entrypoint = "api.index:app"

@@ -1,0 +1,310 @@
+schema_version: 1
+repo: erp-control-plane
+claims:
+  # --- Existing CI gates, mapped as matrix rows -----------------------------
+  - id: C001
+    claim: >-
+      The metric-registry CI gate refuses registry entries that reference models
+      or columns dbt does not define, and refuses measured-population drift
+      against the built warehouse (a dbt change that alters grain or populations
+      fails until the registry is re-measured in the same PR).
+    source: ".github/workflows/ci.yml#metric-registry"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.metric-registry.steps.4.run"
+        equals: "python -m analytics.metrics.check --dbt-dir dbt --duckdb data/analytics/analytics.duckdb"
+      - type: test
+        ref: "tests/test_metric_registry.py::test_real_registry_entries_carry_measured_populations"
+      - type: test
+        ref: "tests/test_metric_registry.py::test_unknown_metric_refused_with_closed_vocabulary"
+  - id: C002
+    claim: >-
+      The GenBI golden-parity CI gate fails a dbt change that moves a headline
+      KPI without regenerating the versioned golden Q→A set.
+    source: ".github/workflows/ci.yml#dbt"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.dbt.steps.6.run"
+        equals: "python analytics/evals/run_evals.py --check-parity"
+      - type: test
+        ref: "tests/test_evals.py::test_parity_against_local_mart"
+      - type: test
+        ref: "tests/test_evals.py::test_golden_set_schema_and_coverage"
+  - id: C003
+    claim: >-
+      The guardrail-fixture CI gate fails a change to a prompt-bearing policy
+      surface (GenBI guardrails, CHP gate) without a same-PR fixture update —
+      policy without fixtures rots.
+    source: ".github/workflows/ci.yml#guardrail-fixtures"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.guardrail-fixtures.steps.3.name"
+        equals: "Enforce guardrail fixture coupling (same-PR fixture updates)"
+      - type: test
+        ref: "tests/test_guardrail_fixtures.py::test_rot_lists_fixture_whose_surface_changed_without_it"
+      - type: test
+        ref: "tests/test_guardrail_fixtures.py::test_fixtures_cover_the_prompt_bearing_surfaces"
+  - id: C004
+    claim: >-
+      The dbt CI job builds all models and tests against DuckDB from the seeded
+      CSV dealer (CSV-path lineage; the informix_demo staging models are excluded
+      because they read Parquet produced by the demo runner) and then runs the
+      GenBI golden-parity check.
+    source: ".github/workflows/ci.yml#dbt"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.dbt.steps.3.run"
+        equals: "python -m connectors.cli extract --source csvsftp_ridgeline --entity invoice_lines"
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.dbt.steps.5.name"
+        equals: "dbt build (all models + tests, DuckDB)"
+      - type: test
+        ref: "tests/test_csv_sftp.py::test_extract_all_entities_matches_manifest_row_counts"
+  - id: C005
+    claim: Every pull request runs the full pytest suite.
+    source: ".github/workflows/ci.yml#test"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.test.steps.3.run"
+        equals: "pytest -q"
+  - id: C006
+    claim: Every pull request passes ruff lint and format checks.
+    source: ".github/workflows/ci.yml#lint"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.lint.steps.3.run"
+        equals: "ruff check ."
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.lint.steps.4.run"
+        equals: "ruff format --check ."
+  - id: C007
+    claim: >-
+      CI validates the Docker Compose configuration for the default, bi, genbi,
+      and genbi-offline profiles.
+    source: ".github/workflows/ci.yml#compose"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.compose.steps.1.run"
+        equals: "docker compose config -q"
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.compose.steps.4.run"
+        equals: "docker compose --profile genbi --profile genbi-offline config -q"
+  - id: C008
+    claim: >-
+      The GenBI CI job validates the curated MDL (structure, boundary, coupling,
+      executability) against the built DuckDB and enforces the spec §3.3 dbt↔MDL
+      coupling — a dbt change that alters mart grain or a metric column fails
+      unless the MDL model is updated in the same PR.
+    source: ".github/workflows/ci.yml#genbi"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.genbi.steps.4.run"
+        equals: "python -m genbi.mdl_gen validate --duckdb data/analytics/analytics.duckdb"
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.genbi.steps.5.run"
+        equals: "python -m genbi.mdl_gen check-coupling"
+      - type: test
+        ref: "tests/test_genbi_contracts.py::test_genbi_rules_compile_against_the_real_registry"
+  - id: C009
+    claim: >-
+      The evidence-matrix CI job machine-verifies every claim in
+      evidence/matrix.yaml on every pull request and push to main — fail-closed,
+      stdlib-only, before any install step, with no skip flags.
+    source: "README.md#evidence-matrix"
+    evidence:
+      - type: manifest_field
+        ref: ".github/workflows/ci.yml:jobs.evidence-matrix.steps.1.run"
+        equals: "python3 tools/verify_evidence_matrix.py"
+      - type: test
+        ref: "tests/test_evidence_matrix.py::test_matrix_verifies_clean"
+
+  # --- The vendored verifier -------------------------------------------------
+  - id: C010
+    claim: >-
+      The vendored verifier is byte-identical to the canonical standard-kit
+      implementation v1.0.0 (icohangar-ops/consensus-hardening-protocol
+      tools/verify_evidence_matrix.py at kit commit 88067e4).
+    source: "tools/verify_evidence_matrix.py#canonical-source-header"
+    evidence:
+      - type: artifact_hash
+        ref: "tools/verify_evidence_matrix.py"
+        sha256: "2d02043e113d019ed73eb51662695a64bd41757cbae47a15669c94066b3dc80c"
+      - type: test
+        ref: "tests/test_evidence_matrix.py::test_verifier_byte_identical_to_canonical"
+  - id: C011
+    claim: >-
+      The vendored verifier imports only the Python standard library (PyYAML
+      optional fallback), performs no network access, never invokes git, and
+      exposes no skip flags or quiet modes.
+    source: "tools/verify_evidence_matrix.py#module-docstring"
+    evidence:
+      - type: test
+        ref: "tests/test_evidence_matrix.py::test_verifier_is_stdlib_only"
+      - type: test
+        ref: "tests/test_evidence_matrix.py::test_verifier_has_no_skip_or_quiet_flags"
+
+  # --- README capabilities ----------------------------------------------------
+  - id: C012
+    claim: >-
+      22 sources are registered in connectors/sources.yml; every *_template
+      source ships disabled (enabled: false) with no literal secrets, and
+      csvsftp_ridgeline is the only enabled source.
+    source: "connectors/sources.yml#registry-header"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_sources_registry.py"
+        timeout_seconds: 60
+      - type: test
+        ref: "tests/test_registry.py::test_all_first_wave_sources_are_declared"
+      - type: test
+        ref: "tests/test_registry.py::test_templates_are_disabled_and_carry_no_literal_secrets"
+  - id: C013
+    claim: >-
+      The seeded dealer dataset contains exactly 5,004 data rows across the nine
+      dealer_export domains, and every file's SHA-256 and row count match the
+      committed manifest.
+    source: "seed/dealer_export/manifest.json"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_seed_rows.py"
+        timeout_seconds: 60
+      - type: test
+        ref: "tests/test_seed_integrity.py::test_manifest_checksums_verify_against_files"
+      - type: test
+        ref: "tests/test_kpi_api.py::test_summary_totals"
+  - id: C014
+    claim: >-
+      Re-running the demo extraction extracts 0 new rows — watermarks and
+      content hashes make re-delivery idempotent.
+    source: "README.md#quickstart-10-minutes"
+    evidence:
+      - type: test
+        ref: "tests/test_csv_sftp.py::test_reextract_is_idempotent_by_content_hash"
+  - id: C015
+    claim: >-
+      The dbt kpi_headline mart publishes 21 KPIs, and the versioned golden Q→A
+      set carries exactly one case per mart metric — 21 cases with expected
+      values, units, and tolerances.
+    source: "analytics/evals/golden_qa.yaml"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_kpi_headline.py"
+        timeout_seconds: 60
+      - type: test
+        ref: "tests/test_evals.py::test_question_templates_cover_every_mart_metric"
+  - id: C016
+    claim: >-
+      Headline KPIs on the seeded demo data are pinned to the dbt-built mart and
+      mirrored by the demo API: GMROI 1.73; inventory turns 5.34; DIO 68.3 days;
+      gross margin 24.43% (0.2443); line fill 91.13% (0.9113); order fill 68.09%
+      (0.6809); OTIF 54.44% (0.5444); DSO 50.7 days; DPO 29.3 days; CCC 89.7
+      days.
+    source: "tests/test_kpi_api.py"
+    evidence:
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.0.expected"
+        equals: 1.73
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.1.expected"
+        equals: 5.34
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.2.expected"
+        equals: 68.3
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.4.expected"
+        equals: 0.2443
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.5.expected"
+        equals: 0.9113
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.6.expected"
+        equals: 0.6809
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.8.expected"
+        equals: 0.5444
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.12.expected"
+        equals: 50.7
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.13.expected"
+        equals: 29.3
+      - type: manifest_field
+        ref: "analytics/evals/golden_qa.yaml:cases.14.expected"
+        equals: 89.7
+      - type: test
+        ref: "tests/test_kpi_api.py::test_kpis_match_dbt_mart"
+  - id: C017
+    claim: >-
+      Every canonical fact row is provenance-stamped (source_system,
+      source_doc_no/source_line_no, loaded_at) for audit trails.
+    source: "README.md#security-notes"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_provenance_stamps.py"
+        timeout_seconds: 60
+      - type: test
+        ref: "tests/test_csv_sftp.py::test_extracted_parquet_carries_provenance"
+  - id: C018
+    claim: >-
+      No credentials are committed: .env is gitignored, only the .env.example
+      placeholder file ships, and disabled template sources carry no literal
+      secrets.
+    source: "README.md#security-notes"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_no_committed_env.py"
+        timeout_seconds: 60
+      - type: test
+        ref: "tests/test_registry.py::test_templates_are_disabled_and_carry_no_literal_secrets"
+  - id: C019
+    claim: >-
+      The README connector-maturity table matches implementation state: coded
+      connectors are marked working/coded, and documented skeletons are marked
+      as skeletons that stop at ConnectorNotImplemented.
+    source: "README.md#connector-maturity-first-wave"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_maturity_table.py"
+        timeout_seconds: 60
+
+  # --- Connector-wave flags (recorded decisions) ------------------------------
+  - id: C020
+    claim: >-
+      A canonical conversion-factor column is deferred: UOM conversions are
+      carried at the connector layer only (BisTrack, DMSi Agility, and Spruce
+      flagged), with the decision and its reversal condition recorded in the
+      connector guide.
+    source: "docs/CONNECTOR_GUIDE.md#connector-wave-flags"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_connector_flags.py"
+        timeout_seconds: 60
+  - id: C021
+    claim: >-
+      BisTrack unscoped invoice scans assume site-global invoice numbering; the
+      documented safe path is per-type extraction keyed by
+      invoice_document_types.
+    source: "docs/CONNECTOR_GUIDE.md#connector-wave-flags"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_connector_flags.py"
+        timeout_seconds: 60
+  - id: C022
+    claim: >-
+      DMSi Agility header/detail parallel-rowset nesting is a confirm-at-
+      onboarding assumption: validate against a live dealer's AgilityPublic
+      metadata before enabling extraction.
+    source: "docs/CONNECTOR_GUIDE.md#connector-wave-flags"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_connector_flags.py"
+        timeout_seconds: 60
+  - id: C023
+    claim: >-
+      The Spruce/RockSolid MAX SOAP Ecommerce API surface is NDA-gated; the
+      shipped path is the manifest-gated CSV/pipe file drop.
+    source: "README.md#connector-maturity-first-wave"
+    evidence:
+      - type: script
+        ref: "scripts/evidence/check_connector_flags.py"
+        timeout_seconds: 60

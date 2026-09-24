@@ -1,0 +1,132 @@
+version: 2
+
+models:
+  - name: dim_item
+    description: Golden item master; one row per canonical item across sources.
+    columns:
+      - name: item_key
+        tests: [unique, not_null]
+      - name: category_key
+        tests:
+          - relationships:
+              to: ref('dim_item_category')
+              field: category_key
+  - name: dim_item_category
+    columns:
+      - name: category_key
+        tests: [unique, not_null]
+  - name: dim_customer
+    columns:
+      - name: customer_key
+        tests: [unique, not_null]
+  - name: dim_ship_to
+    columns:
+      - name: ship_to_key
+        tests: [unique, not_null]
+      - name: customer_key
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+  - name: dim_vendor
+    columns:
+      - name: vendor_key
+        tests: [unique, not_null]
+  - name: dim_location
+    columns:
+      - name: location_key
+        tests: [unique, not_null]
+  - name: dim_salesperson
+    columns:
+      - name: salesperson_key
+        tests: [unique, not_null]
+  - name: dim_date
+    description: Calendar spine for the analysis window.
+    columns:
+      - name: date_key
+        tests: [unique, not_null]
+  - name: ref_coa_mapping
+    description: Effective-dated source-account to consolidated-account mapping.
+    columns:
+      - name: target_consolidated_account
+        tests: [not_null]
+  - name: ref_price_list
+    columns:
+      - name: item_key
+        tests:
+          - relationships:
+              to: ref('dim_item')
+              field: item_key
+
+  - name: fact_sales_order_line
+    description: Order-line grain; service-level flags feed fill/OTIF KPIs.
+    columns:
+      - name: order_line_key
+        tests: [unique, not_null]
+      - name: customer_key
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+      - name: item_key
+        tests:
+          - relationships:
+              to: ref('dim_item')
+              field: item_key
+  - name: fact_invoice_line
+    description: Invoiced revenue and COGS at line grain.
+    columns:
+      - name: invoice_line_key
+        tests: [unique, not_null]
+      - name: customer_key
+        tests:
+          - relationships:
+              to: ref('dim_customer')
+              field: customer_key
+      - name: item_key
+        tests:
+          - relationships:
+              to: ref('dim_item')
+              field: item_key
+      - name: revenue_amount
+        tests: [not_null]
+  - name: fact_purchase_order_line
+    columns:
+      - name: po_line_key
+        tests: [unique, not_null]
+      - name: source_system
+        description: Connector ERP stamp identifying the source system of the row (connectors/base.py erp_id).
+      - name: ordered_qty
+        description: Quantity ordered on the purchase-order line, in the line UoM.
+      - name: received_qty
+        description: Quantity received to date against the purchase-order line.
+      - name: is_received_in_full
+        description: >-
+          True when received_qty >= ordered_qty — the line is closed; false
+          marks an open line (the open_po metric population).
+      - name: vendor_key
+        tests:
+          - relationships:
+              to: ref('dim_vendor')
+              field: vendor_key
+      - name: item_key
+        tests:
+          - relationships:
+              to: ref('dim_item')
+              field: item_key
+  - name: fact_inventory_snapshot
+    columns:
+      - name: snapshot_key
+        tests: [unique, not_null]
+      - name: item_key
+        tests:
+          - relationships:
+              to: ref('dim_item')
+              field: item_key
+  - name: fact_gl_transaction
+    description: GL lines with consolidated account resolved via COA mapping.
+    columns:
+      - name: gl_line_key
+        tests: [unique, not_null]
+      - name: consolidated_account
+        tests: [not_null]

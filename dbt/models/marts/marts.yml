@@ -1,0 +1,90 @@
+version: 2
+
+models:
+  - name: kpi_window
+    description: Derived analysis window and annualization factor.
+  - name: kpi_inventory
+    description: >
+      Inventory efficiency: turns, DIO, weeks of supply, GMROI — annualized
+      on the derived window (window COGS x 365/window_days / avg monthly
+      inventory value).
+    columns:
+      - name: gmroi
+        tests: [not_null]
+      - name: inventory_turns
+        tests: [not_null]
+  - name: kpi_service
+    description: Line fill, order fill, OTD, OTIF, backorder rate.
+    columns:
+      - name: line_fill_rate
+        tests: [not_null]
+      - name: order_fill_rate
+        tests: [not_null]
+  - name: kpi_purchasing
+    description: Vendor fill rate and purchase price variance.
+    columns:
+      - name: vendor_fill_rate
+        tests: [not_null]
+  - name: kpi_finance
+    description: Gross margin %, DSO, DPO, cash conversion cycle, close cycle.
+    columns:
+      - name: gross_margin_pct
+        tests: [not_null]
+      - name: ccc_days
+        tests: [not_null]
+  - name: kpi_growth
+    description: Same-branch share and organic vs acquired revenue mix.
+    columns:
+      - name: acquired_revenue_pct
+        tests: [not_null]
+  - name: kpi_productivity
+    description: Sales per FTE, average ticket, order tempo.
+    columns:
+      - name: avg_ticket
+        tests: [not_null]
+  - name: kpi_headline
+    description: Single-row headline summary for the demo/BI surface.
+    columns:
+      - name: gmroi
+        description: GMROI — gross margin return on inventory investment, annualized on the analysis window (from kpi_inventory).
+        tests: [not_null]
+      - name: inventory_turns
+        description: Annualized inventory turns for the analysis window (from kpi_inventory).
+      - name: dio_days
+        description: Days inventory outstanding (from kpi_inventory).
+      - name: weeks_of_supply
+        description: Weeks of supply carried on hand (from kpi_inventory).
+      - name: gross_margin_pct
+        description: Gross margin percentage for the analysis window (from kpi_finance).
+      - name: line_fill_rate
+        description: Share of order lines shipped complete (from kpi_service).
+      - name: order_fill_rate
+        description: Share of orders shipped complete (from kpi_service).
+      - name: otd_pct
+        description: Share of orders shipped on time (from kpi_service).
+      - name: otif_pct
+        description: On-time in-full share of orders (from kpi_service).
+      - name: backorder_rate
+        description: Share of order lines that end up backordered (from kpi_service).
+      - name: vendor_fill_rate
+        description: Vendor fill rate — received quantity over ordered quantity (from kpi_purchasing).
+      - name: ppv_pct
+        description: Purchase price variance as a share of standard-cost receipts (from kpi_purchasing).
+      - name: dso_days
+        description: Days sales outstanding (from kpi_finance).
+      - name: dpo_days
+        description: Days payable outstanding (from kpi_finance).
+      - name: ccc_days
+        description: Cash conversion cycle in days (from kpi_finance).
+      - name: close_cycle_days
+        description: Monthly close cycle length in days (from kpi_finance).
+      - name: same_branch_revenue_pct
+        description: Share of revenue that is same-branch (from kpi_growth).
+      - name: organic_revenue_pct
+        description: Share of revenue that is organic (from kpi_growth).
+      - name: acquired_revenue_pct
+        description: Share of revenue that comes from acquisitions (from kpi_growth).
+      - name: sales_per_fte_annualized
+        description: Annualized sales per FTE in USD (from kpi_productivity).
+      - name: avg_ticket
+        description: Average ticket — revenue per invoice (from kpi_productivity).

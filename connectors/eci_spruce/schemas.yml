@@ -1,0 +1,104 @@
+# Approved schema registry for ECI Spruce / RockSolid MAX dealer-mediated file
+# drops (spec art_ktSh9Z8x).
+#
+# The dealer's actual export layouts are [D] (undocumented publicly; spec §8) —
+# these entries are the DECLARED contract the onboarding conversation confirms
+# against the dealer's real exports. A file that disagrees quarantines as
+# HEADER_SCHEMA_DRIFT, which is the discovery signal, not a silent remap.
+#
+# Field provenance (spec section per group):
+#   - items: the ecommerce Inventory Item Sync field inventory (§3 row 1) —
+#     UOM, Price/Cost_Price, Pack/Pack_UOM, item status; group/section carry
+#     RSM's "code:name" concatenation (§7) and are split by the connector.
+#     The ecommerce marketing flags (hazmat, green, recycled, MSDS, ...) are
+#     deliberately NOT declared (§7: "map deliberately, don't sync blindly").
+#   - customers: the five account statuses, Charge/Cash types, and three
+#     posting models (§3 row 3 / §7) — never a boolean "on hold".
+#   - lines: quantities are decimal (tally items and four-decimal behavior,
+#     §7); the line UOM column is the ORDERED uom — the item master's stocked
+#     uom and pack/pack_uom stay separate fields (§7). The canonical
+#     line-schema constraint (no conversion-factor column) is tracked for the
+#     ERP formalization task; nothing is invented into canonical here.
+#   - inventory_snapshots: per-branch on-hand via the dealer-side extract
+#     (§3 row 9 — the ecommerce sync publishes default-branch values only),
+#     so branch_code stays a required key column.
+#
+# The SOAP Ecommerce API (operation-level read surfaces) is NDA-gated future
+# work (§2/§8) — these file layouts are the coded surface, nothing else.
+
+items:
+  file: items.csv
+  columns:
+    - {name: item_id, type: string}
+    - {name: description, type: string}
+    - {name: group, type: string} # RSM exports "code:name" — split at the connector layer
+    - {name: section, type: string} # same concatenation
+    - {name: uom, type: string} # stocked UOM
+    - {name: pack, type: integer} # units per pack
+    - {name: pack_uom, type: string}
+    - {name: unit_cost, type: decimal}
+    - {name: list_price, type: decimal}
+    - {name: item_status, type: string}
+
+customers:
+  file: customers.csv
+  columns:
+    - {name: customer_id, type: string}
+    - {name: customer_name, type: string}
+    - {name: account_status, type: string} # Active|Inactive|On Hold|Disabled|Closed
+    - {name: account_type, type: string} # Charge|Cash
+    - {name: posting_model, type: string} # Balance Forward|Open Item|Open Item (Terms)
+    - {name: credit_limit, type: decimal}
+
+vendors:
+  file: vendors.csv
+  columns:
+    - {name: vendor_id, type: string}
+    - {name: vendor_name, type: string}
+  # Thin domain (spec §3 row 5 / §7): no API surface; the dealer-mediated file
+  # extract is the whole story. More columns wait for a documented layout.
+
+sales_order_lines:
+  file: sales_order_lines.csv
+  columns:
+    - {name: order_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: order_date, type: date}
+    - {name: customer_id, type: string}
+    - {name: branch_code, type: string}
+    - {name: item_id, type: string}
+    - {name: ordered_uom, type: string}
+    - {name: ordered_qty, type: decimal}
+    - {name: filled_qty, type: decimal}
+    - {name: unit_price, type: decimal}
+    - {name: order_status, type: string} # credit-hold queues, never a boolean (§7)
+
+invoice_lines:
+  file: invoice_lines.csv
+  columns:
+    - {name: invoice_no, type: string}
+    - {name: line_no, type: integer}
+    - {name: invoice_date, type: date}
+    - {name: order_no, type: string}
+    - {name: customer_id, type: string}
+    - {name: branch_code, type: string}
+    - {name: item_id, type: string}
+    - {name: invoiced_uom, type: string}
+    - {name: invoiced_qty, type: decimal}
+    - {name: unit_price, type: decimal}
+    - {name: unit_cost, type: decimal}
+    - {name: freight_amt, type: decimal}
+    - {name: tax_amt, type: decimal}
+  # v26 convenience fees arrive as invoice LINES (§3 row 8) — no dedicated
+  # column; totals-code tax true-ups likewise stay line-level.
+
+inventory_snapshots:
+  file: inventory_snapshots.csv
+  columns:
+    - {name: snapshot_date, type: date}
+    - {name: branch_code, type: string}
+    - {name: item_id, type: string}
+    - {name: on_hand_qty, type: decimal} # decimal: tally items (§7)
+    - {name: allocated_qty, type: decimal}
+    - {name: on_order_qty, type: decimal}
+    - {name: unit_cost, type: decimal}

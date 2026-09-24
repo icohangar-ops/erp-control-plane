@@ -1,0 +1,24 @@
+name: kpi_window
+table_reference:
+  catalog: analytics
+  schema: main_marts
+  table: kpi_window
+columns:
+- name: window_start
+  type: DATE
+  properties:
+    description: Analysis window start (invoiced-activity bounds).
+- name: window_end
+  type: DATE
+  properties:
+    description: Analysis window end.
+- name: window_days
+  type: BIGINT
+  properties:
+    description: Analysis window length in days.
+- name: annualization_factor
+  type: DOUBLE
+  properties:
+    description: Multiplier annualizing the window (365 / window_days).
+properties:
+  description: Derived analysis window and annualization factor.

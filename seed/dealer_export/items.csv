@@ -1,0 +1,33 @@
+item_no,description,category,subcategory,uom,unit_cost,list_price,item_status
+RM-1001,SPF Dimension Lumber 2x4x8 #2,Lumber & Panels,Dimension Lumber,EA,2.86,3.98,ACTIVE
+RM-1002,SPF Dimension Lumber 2x6x10 #2,Lumber & Panels,Dimension Lumber,EA,4.95,6.85,ACTIVE
+RM-1003,SPF Dimension Lumber 2x8x12 #1,Lumber & Panels,Dimension Lumber,EA,8.25,11.40,ACTIVE
+RM-1010,OSB Sheathing 7/16 4x8,Lumber & Panels,Sheathing,EA,13.50,18.75,ACTIVE
+RM-1011,Plywood Sheathing 11/32 4x8,Lumber & Panels,Sheathing,EA,17.95,24.90,ACTIVE
+RM-1020,PT Lumber 2x4x8 Ground Contact,Lumber & Panels,Treated,EA,4.05,5.60,ACTIVE
+RM-1021,PT Plywood 3/4 4x8,Lumber & Panels,Treated,EA,28.10,38.90,ACTIVE
+RM-1022,5/4x6 Radius Edge Deck Board 12',Lumber & Panels,Decking,EA,6.45,8.95,ACTIVE
+FS-2001,Framing Nails 16d Bright 5 lb,Framing & Fasteners,Nails,BX,20.60,28.50,ACTIVE
+FS-2002,Deck Screws 3in coated 5 lb,Framing & Fasteners,Screws,BX,23.60,32.75,ACTIVE
+FS-2010,Simpson H2.5A Hurricane Tie,Framing & Fasteners,Connectors,EA,1.33,1.85,ACTIVE
+FS-2011,Simpson HD10 Holdown,Framing & Fasteners,Connectors,EA,34.90,48.50,ACTIVE
+CM-3001,QUIKRETE 80 lb 3500 psi,Concrete & Masonry,Bagged Concrete,BG,4.95,6.85,ACTIVE
+CM-3002,QUIKRETE 60 lb,Concrete & Masonry,Bagged Concrete,BG,3.90,5.40,ACTIVE
+CM-3010,Masonry Cement Type N,Concrete & Masonry,Masonry,BG,9.30,12.90,ACTIVE
+CM-3020,Rebar #4 x 20 ft Grade 60,Concrete & Masonry,Rebar,EA,10.25,14.25,ACTIVE
+RF-4001,Architectural Shingles BNDL,Roofing,Shingles,BNDL,27.90,38.75,ACTIVE
+RF-4002,Ridge Cap Shingles BNDL,Roofing,Shingles,BNDL,37.65,52.30,ACTIVE
+RF-4010,#15 Asphalt Felt 432 sf Roll,Roofing,Underlayment,RL,21.50,29.90,ACTIVE
+RF-4011,Synthetic Underlayment 10 sq,Roofing,Underlayment,RL,78.85,109.50,ACTIVE
+RF-4020,Aluminum Drip Edge 10 ft,Roofing,Flashing,LF,1.69,2.35,ACTIVE
+PT-5001,Interior Paint Flat Gallon,Paint & Interiors,Paint,EA,32.20,44.75,ACTIVE
+PT-5002,Bonding Primer Gallon,Paint & Interiors,Primer,EA,23.70,32.90,ACTIVE
+PT-5010,Drywall 4x8x1/2,Paint & Interiors,Drywall,EA,9.05,12.60,ACTIVE
+PT-5011,All-Purpose Joint Compound 4.5 gal,Paint & Interiors,Drywall,BG,13.25,18.40,ACTIVE
+DW-6001,Interior 6-Panel Door Prehung,Doors & Windows,Doors,EA,64.10,89.00,ACTIVE
+DW-6002,Entry Door Slab Fiberglass,Doors & Windows,Doors,EA,208.10,289.00,ACTIVE
+DW-6010,Double-Hung Window 3x5 Low-E,Doors & Windows,Windows,EA,224.60,312.00,ACTIVE
+SX-7001,Vinyl Siding Double 4 Square,Siding & Exterior,Siding,SQ,68.05,94.50,ACTIVE
+SX-7010,Aluminum Soffit 12 ft White,Siding & Exterior,Soffit,EA,10.65,14.80,ACTIVE
+TL-9001,Acrylic Latex Caulk 10.1 oz,Tools & Accessories,Sealants,EA,4.50,6.25,ACTIVE
+TL-9002,Construction Adhesive 28 oz,Tools & Accessories,Adhesives,EA,6.40,8.90,ACTIVE
