@@ -4,8 +4,8 @@ from pathlib import Path
 
 import httpx
 
-from connectors.essbase.connector import EssbaseConnector
 from connectors.base import ExtractionMode
+from connectors.essbase.connector import EssbaseConnector
 from control_plane.config import ControlPlaneConfig
 from control_plane.models import SourceConfig
 from control_plane.store import SqliteControlPlaneStore

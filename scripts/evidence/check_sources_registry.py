@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Evidence check: the connector registry declares 21 sources, disabled-first.
+"""Evidence check: the connector registry declares 22 sources, disabled-first.
 
 Backs the ``evidence/matrix.yaml`` row claiming ``connectors/sources.yml``
-registers exactly 21 sources, every ``*_template`` entry ships
+registers exactly 22 sources, every ``*_template`` entry ships
 ``enabled: false`` with no literal secrets, and the seeded CSV/SFTP demo source
 is the only enabled one. Stdlib-only, offline; exit 0 = verified, exit 1 =
 refused.
@@ -14,7 +14,7 @@ import re
 import sys
 from pathlib import Path
 
-EXPECTED_SOURCE_COUNT = 21
+EXPECTED_SOURCE_COUNT = 22
 EXPECTED_ENABLED_SOURCES = {"csvsftp_ridgeline"}
 
 SOURCE_ID_RE = re.compile(r"^\s*-\s+source_id:\s*(\S+)\s*$")

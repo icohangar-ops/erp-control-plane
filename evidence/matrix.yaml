@@ -146,7 +146,7 @@ claims:
   # --- README capabilities ----------------------------------------------------
   - id: C012
     claim: >-
-      21 sources are registered in connectors/sources.yml; every *_template
+      22 sources are registered in connectors/sources.yml; every *_template
       source ships disabled (enabled: false) with no literal secrets, and
       csvsftp_ridgeline is the only enabled source.
     source: "connectors/sources.yml#registry-header"

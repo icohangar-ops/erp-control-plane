@@ -107,7 +107,8 @@ class EssbaseConnector(BaseConnector):
                 app_name = self._name(app)
                 if not app_name:
                     raise ConnectorError("Essbase application response is missing name")
-                for record in self._paged(f"applications/{quote(app_name, safe='')}/databases"):
+                database_path = f"applications/{quote(app_name, safe='')}/databases"
+                for record in self._paged(database_path):
                     yield self._cube_record(app_name, record)
             return
         raise ConnectorError(f"unsupported Essbase entity: {entity}")
@@ -144,7 +145,9 @@ class EssbaseConnector(BaseConnector):
     def _paged(self, path: str) -> Iterator[dict[str, Any]]:
         offset = 0
         for _ in range(self.PAGE_LIMIT):
-            payload = self._get_json(path, {"offset": str(offset), "limit": str(self.PAGE_SIZE)})
+            payload = self._get_json(
+                path, {"offset": str(offset), "limit": str(self.PAGE_SIZE)}
+            )
             if isinstance(payload, list):
                 records = payload
                 total = None
@@ -161,13 +164,19 @@ class EssbaseConnector(BaseConnector):
                     raise ConnectorError(f"Essbase {path} returned a non-object item")
                 yield record
             offset += len(records)
-            if not records or (isinstance(total, int) and offset >= total) or len(records) < self.PAGE_SIZE:
+            if (
+                not records
+                or (isinstance(total, int) and offset >= total)
+                or len(records) < self.PAGE_SIZE
+            ):
                 return
         raise ConnectorError(f"Essbase {path} exceeded the {self.PAGE_LIMIT} page safety limit")
 
     def _get_json(self, path: str, params: dict[str, str]) -> Any:
         base_url = (self.source.settings.get("base_url") or "").strip().rstrip("/")
-        response = self._client().get(f"{base_url}/{path.lstrip('/')}", params=params, headers=self._headers())
+        response = self._client().get(
+            f"{base_url}/{path.lstrip('/')}", params=params, headers=self._headers()
+        )
         try:
             response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -194,4 +203,9 @@ class EssbaseConnector(BaseConnector):
 
     @staticmethod
     def _name(record: dict[str, Any]) -> str:
-        return str(record.get("name") or record.get("applicationName") or record.get("databaseName") or "").strip()
+        return str(
+            record.get("name")
+            or record.get("applicationName")
+            or record.get("databaseName")
+            or ""
+        ).strip()
