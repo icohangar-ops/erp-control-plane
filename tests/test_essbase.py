@@ -58,7 +58,10 @@ def test_essbase_metadata_snapshot_and_basic_auth(tmp_path: Path) -> None:
             )
         return httpx.Response(404)
 
-    connector._http_client = httpx.Client(transport=httpx.MockTransport(handler))
+    connector._http_client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        auth=("fixture-user", "fixture-password"),
+    )
     result = connector.extract("cubes", ExtractionMode.BACKFILL)
 
     assert result.rows_extracted == 1
