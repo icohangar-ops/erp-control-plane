@@ -145,9 +145,7 @@ class EssbaseConnector(BaseConnector):
     def _paged(self, path: str) -> Iterator[dict[str, Any]]:
         offset = 0
         for _ in range(self.PAGE_LIMIT):
-            payload = self._get_json(
-                path, {"offset": str(offset), "limit": str(self.PAGE_SIZE)}
-            )
+            payload = self._get_json(path, {"offset": str(offset), "limit": str(self.PAGE_SIZE)})
             if isinstance(payload, list):
                 records = payload
                 total = None
@@ -204,8 +202,5 @@ class EssbaseConnector(BaseConnector):
     @staticmethod
     def _name(record: dict[str, Any]) -> str:
         return str(
-            record.get("name")
-            or record.get("applicationName")
-            or record.get("databaseName")
-            or ""
+            record.get("name") or record.get("applicationName") or record.get("databaseName") or ""
         ).strip()
